@@ -97,7 +97,7 @@ test('JetBrains/koog: test data, weather-retrieval and arithmetic-evaluator, is 
 
 test('the JetBrains organization: its repositories with skills, grouped, sorted ignoring case, the counts adding up', async () => {
   // The organization changes every day: what holds whatever its repositories hold.
-  const { stdout } = await scans.jetbrains;
+  const { stdout, stderr } = await scans.jetbrains;
   const [header, ...blocks] = stdout.trimEnd().split('\n\n');
   const match = /^JetBrains · (\d+) skills in (\d+) of (\d+) repositories$/.exec(header);
   assert.ok(match, header);
@@ -118,6 +118,9 @@ test('the JetBrains organization: its repositories with skills, grouped, sorted 
   }
   assert.equal(listed, skills);
   assert.deepEqual(ids, [...ids].sort((a, b) => (a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0)));
-  assert.ok(ids.includes('JetBrains/MPS') && ids.includes('JetBrains/koog'), ids.join(', '));
+  // A token that sees the private repositories too may find more than code search lists: then some are missing.
+  if (!/code search lists at most 1000 SKILL\.md files/.test(stderr)) {
+    assert.ok(ids.includes('JetBrains/MPS') && ids.includes('JetBrains/koog'), ids.join(', '));
+  }
   assert.doesNotMatch(stdout, /^weather-retrieval /m, "koog's test data is not a skill here either");
 });

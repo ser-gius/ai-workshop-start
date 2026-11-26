@@ -39,11 +39,11 @@ export function parseGitHubOwnerUrl(input: string): { owner: string } | undefine
 export async function openGitHub(input: string, options: GitHubOptions): Promise<Source> {
   const name = parseGitHubUrl(input);
   if (!name) throw new AtlasError(`Not a GitHub repository URL: ${input}`);
+  const notFound = `Repository not found: https://github.com/${name.owner}/${name.repo}`;
+  // `.` and `..` are no name: the URL would resolve to another API path.
+  if (/^\.+$/.test(name.owner) || /^\.+$/.test(name.repo)) throw new AtlasError(notFound);
   const github = client(options);
-  const info = await github.json<{ full_name: string; default_branch: string }>(
-    `${API}/repos/${name.owner}/${name.repo}`,
-    `Repository not found: https://github.com/${name.owner}/${name.repo}`,
-  );
+  const info = await github.json<{ full_name: string; default_branch: string }>(`${API}/repos/${name.owner}/${name.repo}`, notFound);
   const id = info.full_name;
   const sha = await commit(github, id, name.ref ?? info.default_branch);
   const warnings: string[] = [];
@@ -67,11 +67,12 @@ type ListedRepository = { full_name: string; default_branch: string; fork: boole
 export async function openOrganization(input: string, options: GitHubOptions): Promise<OrganizationSource> {
   const name = parseGitHubOwnerUrl(input);
   if (!name) throw new AtlasError(`Not a GitHub organization URL: ${input}`);
+  const notFound = `Organization not found: https://github.com/${name.owner}`;
+  // `.` and `..` are no owner: `/users/..` is the API's root, which answers without a login.
+  if (/^\.+$/.test(name.owner)) throw new AtlasError(notFound);
   const github = client(options);
-  const owner = await github.json<{ login: string; type: string; public_repos?: number }>(
-    `${API}/users/${name.owner}`,
-    `Organization not found: https://github.com/${name.owner}`,
-  );
+  const owner = await github.json<{ login?: string; type: string; public_repos?: number }>(`${API}/users/${name.owner}`, notFound);
+  if (typeof owner.login !== 'string') throw new AtlasError(notFound);
   const organization = owner.type === 'Organization';
   const warnings: string[] = [];
   // The list and the search at the same time: neither needs the other.
@@ -280,12 +281,15 @@ function client({ fetch, token }: GitHubOptions) {
       // A short wait, as GitHub asks for it, is worth it: code search allows only 10 requests a minute.
       const wait = retryAfter(response, text);
       if (wait !== undefined && wait <= RETRY_WAIT && attempt < RETRY_ATTEMPTS) {
-        await new Promise((resolve) => setTimeout(resolve, wait));
+        await new Promise((resolve) => setTimeout(resolve, wait + RETRY_MARGIN));
         return request(url, notFound, attempt + 1);
       }
-      // How long, when GitHub says and it is longer than a minute.
+      // How long, when GitHub says and it is longer than a minute: GitHub's wait, without the margin.
       const later = wait !== undefined && wait > RETRY_WAIT ? `${Math.ceil(wait / 60_000)} minutes` : 'a minute';
-      throw stop(`GitHub rate limit reached; ${token ? `try again in ${later}` : 'set GITHUB_TOKEN'}`);
+      // Which of GitHub's limits (core, search, …), when it says: a CI log then tells them apart.
+      const resource = response.headers.get('x-ratelimit-resource');
+      const which = resource && /^[\w-]+$/.test(resource) ? ` (the ${resource} limit)` : '';
+      throw stop(`GitHub rate limit reached${which}; ${token ? `try again in ${later}` : 'set GITHUB_TOKEN'}`);
     }
     if (response.status === 401) throw stop('GitHub rejected the token in GITHUB_TOKEN');
     throw new AtlasError(`GitHub answered ${response.status} for ${url}${text && `: ${text}`}`);
@@ -314,20 +318,21 @@ function client({ fetch, token }: GitHubOptions) {
 const RETRY_WAIT = 60_000;
 /** Each request at most this many times: the first, and two after a wait. */
 const RETRY_ATTEMPTS = 3;
+/** A little more than GitHub asks to wait, so that the limit has lifted when asked again. */
+const RETRY_MARGIN = 500;
 
 /**
- * How long GitHub asks to wait, in milliseconds, with a little margin: its `Retry-After`, the
- * "try again in 13.7s" of a code search, or until the reset of a used-up limit. Undefined if it does not say.
+ * How long GitHub asks to wait, in milliseconds: its `Retry-After`, the "try again in 13.7s" of a
+ * code search, or until the reset of a used-up limit. Undefined if it does not say.
  */
 function retryAfter(response: Response, text: string): number | undefined {
-  const margin = 500;
   const header = response.headers.get('retry-after');
-  if (header && /^\d+$/.test(header)) return Number(header) * 1000 + margin;
+  if (header && /^\d+$/.test(header)) return Number(header) * 1000;
   const said = /try again in ([\d.]+)\s*s/i.exec(text);
-  if (said) return Number(said[1]) * 1000 + margin;
+  if (said) return Number(said[1]) * 1000;
   const reset = response.headers.get('x-ratelimit-reset');
   if (response.headers.get('x-ratelimit-remaining') === '0' && reset && /^\d+$/.test(reset)) {
-    return Math.max(0, Number(reset) * 1000 - Date.now()) + margin;
+    return Math.max(0, Number(reset) * 1000 - Date.now());
   }
   return undefined;
 }

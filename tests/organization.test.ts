@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createBrowserBackend } from '../src/browser.ts';
-import { openOrganization, parseGitHubOwnerUrl, parseGitHubUrl, type Fetch } from '../src/core/github.ts';
+import { openGitHub, openOrganization, parseGitHubOwnerUrl, parseGitHubUrl, type Fetch } from '../src/core/github.ts';
 import { replay, type Recording } from '../src/core/replay.ts';
 import { scanOrganization } from '../src/core/scan.ts';
 import { atlasOn, EXAMPLE_COMMIT, ORGANIZATION, searchUrl, USER } from './helpers.ts';
@@ -159,6 +159,34 @@ test('unknown organization → a clear message, exit code 1', async () => {
   assert.equal(stderr, 'Organization not found: https://github.com/nobody');
 });
 
+test('`.` and `..` as the owner → unknown organization, nothing asked of GitHub; so is an answer without a login', async () => {
+  const asked: string[] = [];
+  const fetch: Fetch = async (url) => (asked.push(url), Response.json({ message: 'not asked' }, { status: 500 }));
+  for (const owner of ['.', '..', '...']) {
+    await assert.rejects(openOrganization(`github.com/${owner}/`, { fetch, token: 'test' }), {
+      message: `Organization not found: https://github.com/${owner}`,
+    });
+  }
+  assert.deepEqual(asked, []);
+  // The CLI, as a user runs it: `/users/..` would be the API's root, which answers 200 without a login.
+  const root: Recording = { 'https://api.github.com/users/..': { status: 200, body: { current_user_url: 'https://api.github.com/user' } } };
+  assert.deepEqual(await atlasOn(root, 'github.com/..'), { code: 1, stdout: '', stderr: 'Organization not found: https://github.com/..' });
+  // Whatever the owner, an answer that names no one is no organization.
+  const nameless: Recording = { 'https://api.github.com/users/ghost': { status: 200, body: { type: 'Organization' } } };
+  assert.deepEqual(await atlasOn(nameless, 'github.com/ghost'), { code: 1, stdout: '', stderr: 'Organization not found: https://github.com/ghost' });
+});
+
+test('`.` and `..` in a repository URL → unknown repository, nothing asked of GitHub', async () => {
+  const asked: string[] = [];
+  const fetch: Fetch = async (url) => (asked.push(url), Response.json({ message: 'not asked' }, { status: 500 }));
+  for (const [owner, repo] of [['..', 'x'], ['JetBrains', '..'], ['.', '.']]) {
+    await assert.rejects(openGitHub(`github.com/${owner}/${repo}`, { fetch, token: 'test' }), {
+      message: `Repository not found: https://github.com/${owner}/${repo}`,
+    });
+  }
+  assert.deepEqual(asked, []);
+});
+
 test('the rate limit, a rejected token or GitHub unreachable in one repository → the whole scan stops, exit code 1', async () => {
   const failing = (answer: Recording[string] | undefined): Recording => {
     const recording: Recording = { ...ORGANIZATION };
@@ -206,6 +234,33 @@ test("GitHub's rate limit: a wait over a minute (and how long), no wait given, o
   );
   await assert.rejects(later.scan, { message: 'GitHub rate limit reached; try again in 51 minutes' }, 'how long, as GitHub says');
   assert.equal(later.asked(), 1, '50 minutes are not waited for');
+  // A whole number of minutes is that many, not one more.
+  const twoMinutes = limitedWith(() =>
+    Response.json({ message: 'You have exceeded a secondary rate limit.' }, { status: 403, headers: { 'Retry-After': '120' } }),
+  );
+  await assert.rejects(twoMinutes.scan, { message: 'GitHub rate limit reached; try again in 2 minutes' });
+  const anHour = limitedWith(() =>
+    Response.json(
+      { message: 'API rate limit exceeded for user ID 1.' },
+      { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 3600) } },
+    ),
+  );
+  await assert.rejects(anHour.scan, { message: 'GitHub rate limit reached; try again in 60 minutes' });
+  // Which limit, when GitHub says.
+  const core = limitedWith(() =>
+    Response.json(
+      { message: 'API rate limit exceeded for installation ID 1.' },
+      {
+        status: 403,
+        headers: {
+          'x-ratelimit-remaining': '0',
+          'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 780),
+          'x-ratelimit-resource': 'core',
+        },
+      },
+    ),
+  );
+  await assert.rejects(core.scan, { message: 'GitHub rate limit reached (the core limit); try again in 13 minutes' });
   const silent = limitedWith(() => Response.json({ message: 'Too many requests' }, { status: 429 }));
   await assert.rejects(silent.scan, message);
   assert.equal(silent.asked(), 1);

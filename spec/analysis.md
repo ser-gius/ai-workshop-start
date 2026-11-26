@@ -16,7 +16,10 @@ Skill: id = `repo:path`, name, description, commit
 - Malformed front matter → a *warning*, the scan goes on
 - Unreachable repository → a clear message, exit code 1
 - GitHub's rate limit, when it says to wait *a minute* or less (code search: 10 requests a minute) →
-  wait, then ask again, twice at most; a longer wait → `GitHub rate limit reached; try again in <n> minutes`, exit code 1
+  wait, then ask again, twice at most; a longer wait → `GitHub rate limit reached; try again in <n> minutes`, exit code 1.
+  `<n>` is GitHub's wait rounded up: `Retry-After: 120` → `2 minutes`. When GitHub names the limit
+  (`x-ratelimit-resource`), so does the message: `GitHub rate limit reached (the core limit); try again in 13 minutes`
+- `.` or `..` as the owner or the name → `Repository not found: <URL>`, nothing asked of GitHub
 - A **private** repository, with a `GITHUB_TOKEN` that can read it: listed *and read* with the token
 - An empty repository (no commit yet) → `Repository is empty: <URL>`, exit code 1
 
@@ -33,7 +36,8 @@ Skill: id = `repo:path`, name, description, commit
 - A repository's warning, prefixed with `owner/name`, as a *warning*; so is one that fails
   (`JetBrains/x: Commit not found: …; skipped`): the scan goes on
 - An empty repository → no skills, no warning
-- Unknown organization → `Organization not found: <URL>`, exit code 1
+- Unknown organization → `Organization not found: <URL>`, exit code 1; so is `.` or `..` as the owner
+  (`github.com/..`, nothing asked of GitHub), and an answer from GitHub without a `login`
 - A rejected token, the rate limit, GitHub unreachable → the whole scan stops: a clear message, exit code 1
 
 ## What is a project skill?
