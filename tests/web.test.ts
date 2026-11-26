@@ -838,3 +838,18 @@ test('no skills: the SKILL.md view says how to read one', async (t) => {
   assert.equal(page.document.querySelector('#skills li[role="option"]'), null);
   assert.equal(page.document.querySelector('#skill .placeholder')?.textContent, 'Select a skill to read its SKILL.md.');
 });
+
+test("an organization: its card shows while it scans, the filter and the skills only once it has answered", async (t) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const answer = organizationAnswer('JetBrains', 865, [['kotlin', 6]]);
+  const page = await pageAt(t, 'github.com/JetBrains', async () => (await held, Response.json(answer)));
+  const results = () => (page.document.getElementById('results') as HTMLElement).hidden;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(page.card().hidden, false, 'scanning: the card');
+  assert.equal(results(), true, 'scanning: no filter, no skills');
+  release();
+  await page.scanned();
+  assert.equal(page.card().hidden, false);
+  assert.equal(results(), false, 'answered: the filter and the skills');
+});
