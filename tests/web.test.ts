@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { createBrowserBackend } from '../src/browser.ts';
 import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
-import { serve, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
+import { serve, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
 import { CLI, EXAMPLE_COMMIT, FIXTURE, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
 
 // The token goes to GitHub with every /user/repos request.
@@ -104,6 +104,51 @@ test('a local directory: every skill sorted by name, its SKILL.md as it is, and 
   }
   assert.equal(body.warnings.length, 1);
   assert.match(body.warnings[0], /^\.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
+});
+
+test('an organization: its repositories with skills, grouped, each skill with its link and SKILL.md, and warnings', async () => {
+  const response = await fetch(`${url}api/scan?repo=${encodeURIComponent('https://github.com/octo-org')}`);
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as OrganizationAnswer;
+  assert.deepEqual(body.organization, { id: 'octo-org', url: 'https://github.com/octo-org', repositories: 101 });
+  assert.deepEqual(
+    body.repositories.map(({ repository, skills }) => [repository.id, skills.map((skill) => skill.name)]),
+    [
+      ['octo-org/agents', ['commits', 'reviews']],
+      ['octo-org/Docs', ['style']],
+      ['octo-org/tools', ['lint']],
+    ],
+  );
+  const [agents] = body.repositories;
+  assert.deepEqual(agents.repository, { id: 'octo-org/agents', url: 'https://github.com/octo-org/agents', commit: EXAMPLE_COMMIT });
+  assert.deepEqual(agents.skills[0], {
+    id: 'octo-org/agents:.claude/skills/commits/SKILL.md',
+    name: 'commits',
+    description: 'Write commit messages the way this organization does. Use for every commit.',
+    summary: 'Write commit messages the way this organization does.',
+    path: '.claude/skills/commits/SKILL.md',
+    link: `https://github.com/octo-org/agents/blob/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`,
+    copies: [],
+    text: '---\nname: commits\ndescription: Write commit messages the way this organization does. Use for every commit.\n---\n',
+  });
+  assert.deepEqual(agents.skills[1].copies, ['.claude/skills/reviews/SKILL.md']);
+  assert.equal(body.warnings.length, 2);
+  assert.match(body.warnings[0], /^octo-org\/broken: Commit not found: /);
+  assert.match(body.warnings[1], /^octo-org\/Docs: \.github\/skills\/style\/SKILL\.md: malformed front matter: /);
+
+  const page = await (await fetch(url)).text();
+  assert.match(page, /if \(answer\.organization\)/, 'the page tells an organization from a repository');
+  assert.match(page, /' of ' \+ count\(total, 'repository', 'repositories'\)/, 'its skill count, in <n> of <m> repositories');
+  assert.match(page, /el\('li', 'group'\)/, 'a heading per repository');
+  assert.match(page, /el\('a', '', group\.repository\.id \+ ' · ' \+ count\(group\.skills\.length, 'skill'\)\)/, 'owner/name · N skills');
+  assert.match(page, /link\.href = group\.repository\.url/, 'linked to the repository');
+  assert.match(page, /list\(group\.skills\)/, 'its skills under it');
+});
+
+test('an unknown organization → 400 with a clear message', async () => {
+  const response = await fetch(`${url}api/scan?repo=${encodeURIComponent('github.com/no-such-org')}`);
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'Organization not found: https://github.com/no-such-org' });
 });
 
 test('no link, or an unreachable repository → 400 with a clear message', async () => {

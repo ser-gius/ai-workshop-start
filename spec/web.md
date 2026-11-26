@@ -4,7 +4,7 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - Only in the Node CLI: the browser terminal's `help` does not list it
 - A request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` → 403 (no DNS rebinding)
 ## Page
-- A **field** for a repository link: a GitHub URL, or a local directory
+- A **field** for a repository link: a GitHub URL, a GitHub organization URL, or a local directory
 - The repository and its skill count, then **every skill**: name and description, sorted by name
 - A description is **trimmed** to its first sentence, on one line, at most *two lines* on screen
   (a long sentence too); when there is more (a second sentence, or a sentence cut at two lines), it is
@@ -16,10 +16,14 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - Warnings under the field; an unreachable repository → its *clear message*, no skills
 - `?repo=<link>` scans at once, so a scan has a link of its own
 - A SKILL.md is shown as **text**, never as HTML
+- An **organization**: its name, skill count and `<n> of <m> repositories`, then the skills *grouped by
+  repository*: a heading per repository (`owner/name · N skills`, linked), its skills under it, as above
 ## API
 `GET /api/scan?repo=<link>` → JSON `{ repository, skills, warnings }`; a skill has `name`,
 `description` (on one line), `summary` (its first sentence), `path`, `link`, `copies` and `text`, the SKILL.md
 - No link, or an unreachable repository → 400 `{ error }`
+- An organization → `{ organization, repositories, warnings }`: `organization` has `id`, `url` and `repositories`
+  (how many, forks left out); `repositories` lists those with skills, each `{ repository, skills }` as above
 
 `GET /api/repositories` → JSON `{ repositories }`: the `GITHUB_TOKEN` user's repositories (GitHub's
 `/user/repos`), most recently pushed first, 100 a page, at most 3 pages; a repository has `full_name`,

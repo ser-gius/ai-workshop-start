@@ -1,6 +1,6 @@
-import { AtlasError } from './errors.ts';
+import { AtlasError, EmptyRepositoryError, UnavailableError } from './errors.ts';
 import { SKILL_ROOTS } from './find.ts';
-import type { Source } from './scan.ts';
+import type { OrganizationSource, Source } from './scan.ts';
 
 /** The part of `fetch` the core uses, so tests and the browser can pass their own. */
 export type Fetch = (url: string, init?: { headers?: Record<string, string> }) => Promise<Response>;
@@ -29,6 +29,12 @@ export function parseGitHubUrl(input: string): { owner: string; repo: string; re
   return match[3] ? { owner: match[1], repo: match[2], ref: match[3] } : { owner: match[1], repo: match[2] };
 }
 
+/** `https://github.com/<owner>`, with or without the scheme or a trailing slash: an organization, or a user. */
+export function parseGitHubOwnerUrl(input: string): { owner: string } | undefined {
+  const match = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/?$/i.exec(input.trim());
+  return match ? { owner: match[1] } : undefined;
+}
+
 /** Resolves the default branch, or the URL's commit, to a commit and lists the files that may be skills. */
 export async function openGitHub(input: string, options: GitHubOptions): Promise<Source> {
   const name = parseGitHubUrl(input);
@@ -39,11 +45,7 @@ export async function openGitHub(input: string, options: GitHubOptions): Promise
     `Repository not found: https://github.com/${name.owner}/${name.repo}`,
   );
   const id = info.full_name;
-  const ref = name.ref ?? info.default_branch;
-  const { sha } = await github.json<{ sha: string }>(
-    `${API}/repos/${id}/commits/${encodePath(ref)}`,
-    `Commit not found: https://github.com/${id}/tree/${ref}`,
-  );
+  const sha = await commit(github, id, name.ref ?? info.default_branch);
   const warnings: string[] = [];
   // Code search sees only the default branch: a fixed commit is listed through its tree.
   const paths = !options.token
@@ -51,6 +53,73 @@ export async function openGitHub(input: string, options: GitHubOptions): Promise
     : name.ref
       ? await wholeTree(github, id, sha)
       : await searchPaths(github, id);
+  return source(github, id, sha, paths, warnings);
+}
+
+/** A repository as GitHub lists it among its owner's. */
+type ListedRepository = { full_name: string; default_branch: string; fork: boolean };
+
+/**
+ * Every repository of an organization (or a user), forks left out, at its default branch. With a
+ * token, one code search over the whole organization finds the SKILL.md files, and only the
+ * repositories it finds are read; without it, each repository is listed through its tree.
+ */
+export async function openOrganization(input: string, options: GitHubOptions): Promise<OrganizationSource> {
+  const name = parseGitHubOwnerUrl(input);
+  if (!name) throw new AtlasError(`Not a GitHub organization URL: ${input}`);
+  const github = client(options);
+  const owner = await github.json<{ login: string; type: string; public_repos?: number }>(
+    `${API}/users/${name.owner}`,
+    `Organization not found: https://github.com/${name.owner}`,
+  );
+  const organization = owner.type === 'Organization';
+  const warnings: string[] = [];
+  // The list and the search at the same time: neither needs the other.
+  const [listed, found] = await Promise.all([
+    listRepositories(github, `${API}/${organization ? 'orgs' : 'users'}/${owner.login}/repos`, owner.public_repos ?? 0),
+    options.token ? searchOwner(github, `${organization ? 'org' : 'user'}:${owner.login}`, warnings) : undefined,
+  ]);
+  const repositories = listed.filter((repository) => !repository.fork);
+  return {
+    organization: { id: owner.login, url: `https://github.com/${owner.login}` },
+    repositories: repositories.length,
+    sources: repositories
+      .filter((repository) => !found || found.has(repository.full_name))
+      .map(({ full_name: id, default_branch: branch }) => ({
+        id,
+        open: async () => {
+          const sha = await commit(github, id, branch);
+          const repositoryWarnings: string[] = [];
+          const paths = found?.get(id) ?? (await treePaths(github, id, sha, repositoryWarnings));
+          return source(github, id, sha, paths, repositoryWarnings);
+        },
+      })),
+    warnings,
+  };
+}
+
+/**
+ * The owner's repositories, 100 a page: the pages its public repositories need, at once; then, while a
+ * page is full (private repositories the token sees), the next one.
+ */
+async function listRepositories(github: Client, url: string, expected: number): Promise<ListedRepository[]> {
+  const page = (n: number) => github.json<ListedRepository[]>(`${url}?per_page=100&page=${n}`);
+  const pages = await Promise.all(Array.from({ length: Math.max(1, Math.ceil(expected / 100)) }, (_, i) => page(i + 1)));
+  while (pages.at(-1)!.length === 100) pages.push(await page(pages.length + 1));
+  return pages.flat();
+}
+
+/** The ref's commit; an empty repository has none. */
+async function commit(github: Client, id: string, ref: string): Promise<string> {
+  const { sha } = await github.json<{ sha: string }>(
+    `${API}/repos/${id}/commits/${encodePath(ref)}`,
+    `Commit not found: https://github.com/${id}/tree/${ref}`,
+  );
+  return sha;
+}
+
+/** The repository at the commit: these files, read from there. */
+function source(github: Client, id: string, sha: string, paths: string[], warnings: string[]): Source {
   const [organization, repo] = id.split('/');
   return {
     repository: { id, organization, name: repo, url: `https://github.com/${id}`, commit: sha },
@@ -101,6 +170,28 @@ async function searchPaths(github: Client, id: string): Promise<string[]> {
     if (result.items.length < 100 || page * 100 >= result.total_count) break;
   }
   return [...paths];
+}
+
+/** GitHub returns at most 1000 code search results: ten pages of 100. */
+const SEARCH_LIMIT = 1000;
+
+/** One code search over every repository of the owner (`org:<owner>` or `user:<owner>`): SKILL.md paths by repository. */
+async function searchOwner(github: Client, qualifier: string, warnings: string[]): Promise<Map<string, string[]>> {
+  const found = new Map<string, Set<string>>(); // pages can repeat a result
+  for (let page = 1; page * 100 <= SEARCH_LIMIT; page++) {
+    const result = await github.json<{ total_count: number; items: { path: string; repository: { full_name: string } }[] }>(
+      `${API}/search/code?q=filename:SKILL.md+${qualifier}&per_page=100&page=${page}`,
+    );
+    for (const item of result.items) {
+      const id = item.repository.full_name;
+      found.set(id, (found.get(id) ?? new Set()).add(item.path));
+    }
+    if (page === 1 && result.total_count > SEARCH_LIMIT) {
+      warnings.push(`code search lists at most ${SEARCH_LIMIT} SKILL.md files, and there are ${result.total_count}: some skills may be missing`);
+    }
+    if (result.items.length < 100 || page * 100 >= result.total_count) break;
+  }
+  return new Map([...found].map(([id, paths]) => [id, [...paths]]));
 }
 
 type Tree = { truncated: boolean; tree: { path: string; mode: string; type: string; sha: string }[] };
@@ -157,12 +248,19 @@ function client({ fetch, token }: GitHubOptions) {
   const answers = new Map<string, Promise<unknown>>(); // the root tree is asked for once per skill root
   // GitHub turns away too many API requests at once (a secondary rate limit): a few at a time.
   const limit = limiter(20);
+  // Once GitHub turns the scan away, every later request would be turned away too: none is sent.
+  let stopped: UnavailableError | undefined;
+  const stop = (message: string) => {
+    stopped ??= new UnavailableError(message);
+    return stopped;
+  };
 
   async function get(url: string, init?: { headers: Record<string, string> }): Promise<Response> {
+    if (stopped) throw stopped;
     try {
       return await fetch(url, init);
     } catch (error) {
-      throw new AtlasError(`Cannot reach GitHub: ${describe(error)}`);
+      throw stop(`Cannot reach GitHub: ${describe(error)}`);
     }
   }
 
@@ -174,10 +272,14 @@ function client({ fetch, token }: GitHubOptions) {
     const text = typeof message === 'string' ? message : '';
     // An unknown commit, branch or tag is a 422, not a 404.
     if (response.status === 404 || (response.status === 422 && /no commit found/i.test(text))) throw new AtlasError(notFound);
-    if ((response.status === 403 || response.status === 429) && /rate limit/i.test(text)) {
-      throw new AtlasError(`GitHub rate limit reached; ${token ? 'try again in a minute' : 'set GITHUB_TOKEN'}`);
+    if (response.status === 409 && /repository is empty/i.test(text)) {
+      const id = /\/repos\/([^/]+\/[^/]+)\//.exec(url)?.[1];
+      throw new EmptyRepositoryError(`Repository is empty: https://github.com/${id}`);
     }
-    if (response.status === 401) throw new AtlasError('GitHub rejected the token in GITHUB_TOKEN');
+    if ((response.status === 403 || response.status === 429) && /rate limit/i.test(text)) {
+      throw stop(`GitHub rate limit reached; ${token ? 'try again in a minute' : 'set GITHUB_TOKEN'}`);
+    }
+    if (response.status === 401) throw stop('GitHub rejected the token in GITHUB_TOKEN');
     throw new AtlasError(`GitHub answered ${response.status} for ${url}${text && `: ${text}`}`);
   }
 

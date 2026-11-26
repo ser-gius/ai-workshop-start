@@ -1,5 +1,6 @@
+import { AtlasError, EmptyRepositoryError, UnavailableError } from './errors.ts';
 import { findSkills, type SkillFile } from './find.ts';
-import { sortSkills, type Repository, type Skill } from './model.ts';
+import { compareText, sortSkills, type Organization, type Repository, type Skill } from './model.ts';
 import { parseSkill } from './parse.ts';
 
 /** A repository to scan: its files, and how to read them. */
@@ -43,4 +44,58 @@ async function readSkill(source: Source, file: SkillFile): Promise<{ skill?: Ski
     text,
   };
   return { skill, warning: parsed.warning && `${file.path}: ${parsed.warning}` };
+}
+
+/** An organization to scan: its repositories that may have skills, each opened when it is scanned. */
+export type OrganizationSource = {
+  organization: Organization;
+  /** How many repositories it has, forks left out. */
+  repositories: number;
+  sources: { id: string; open(): Promise<Source> }[];
+  /** What listing the repositories had to leave out. */
+  warnings: string[];
+};
+
+export type OrganizationResult = {
+  organization: Organization;
+  /** How many repositories it has, forks left out. */
+  repositories: number;
+  /** The repositories with skills, by `owner/name`, ignoring case. */
+  results: ScanResult[];
+  /** Each prefixed with its repository. */
+  warnings: string[];
+};
+
+/** Is it an organization, not a single repository? */
+export function isOrganization(source: Source | OrganizationSource): source is OrganizationSource {
+  return 'sources' in source;
+}
+
+/**
+ * Every repository, scanned at the same time (the source limits how many requests run at once).
+ * One repository that fails is a warning; a source that turns the scan away stops it.
+ */
+export async function scanOrganization(source: OrganizationSource): Promise<OrganizationResult> {
+  // By `owner/name`, ignoring case as GitHub does; then exactly, so the order never changes.
+  const sources = [...source.sources].sort(
+    (a, b) => compareText(a.id.toLowerCase(), b.id.toLowerCase()) || compareText(a.id, b.id),
+  );
+  const scanned = await Promise.all(
+    sources.map(async ({ id, open }): Promise<{ result?: ScanResult; warnings: string[] }> => {
+      try {
+        const result = await scan(await open());
+        return { result, warnings: result.warnings.map((warning) => `${id}: ${warning}`) };
+      } catch (error) {
+        if (error instanceof EmptyRepositoryError) return { warnings: [] };
+        if (error instanceof AtlasError && !(error instanceof UnavailableError)) return { warnings: [`${id}: ${error.message}; skipped`] };
+        throw error;
+      }
+    }),
+  );
+  return {
+    organization: source.organization,
+    repositories: source.repositories,
+    results: scanned.flatMap(({ result }) => (result && result.skills.length > 0 ? [result] : [])),
+    warnings: [...source.warnings, ...scanned.flatMap(({ warnings }) => warnings)],
+  };
 }

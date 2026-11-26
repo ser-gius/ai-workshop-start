@@ -1,4 +1,5 @@
-// The local web view: a page with a field for a repository link, its skills and their SKILL.md.
+// The local web view: a page with a field for a repository link, its skills and their SKILL.md; an
+// organization's link, its repositories' skills, grouped by repository.
 // The same core as the CLI; the page asks GET /api/scan?repo=<URL> and renders the answer, and
 // GET /api/repositories for the user's GitHub repositories to suggest in the field.
 // Nothing is stored: every scan is fresh.
@@ -6,11 +7,11 @@ import { createServer, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
 import type { UserRepositories } from './core/github.ts';
 import { firstSentence, skillLink } from './core/model.ts';
-import { scan, type Source } from './core/scan.ts';
+import { isOrganization, scan, scanOrganization, type OrganizationSource, type ScanResult, type Source } from './core/scan.ts';
 
 export type WebOptions = {
-  /** Opens what the user typed into the field. */
-  open(input: string): Promise<Source>;
+  /** Opens what the user typed into the field: a repository, or an organization's repositories. */
+  open(input: string): Promise<Source | OrganizationSource>;
   /** The user's repositories, suggested in the field; none without it. */
   repositories?(): Promise<UserRepositories>;
 };
@@ -18,8 +19,8 @@ export type WebOptions = {
 /** What GET /api/repositories answers: the suggestions, a hint without a token, or GitHub's failure. */
 export type RepositoriesAnswer = UserRepositories & { error?: string };
 
-/** What GET /api/scan answers: the repository, each skill with its link and SKILL.md, and warnings. */
-export type ScanAnswer = {
+/** One repository in GET /api/scan's answer: the repository, each skill with its link and SKILL.md. */
+export type RepositoryAnswer = {
   repository: { id: string; url: string; commit: string };
   skills: {
     id: string;
@@ -33,8 +34,35 @@ export type ScanAnswer = {
     copies: string[];
     text: string;
   }[];
+};
+
+/** What GET /api/scan answers for a repository: its skills, and warnings. */
+export type ScanAnswer = RepositoryAnswer & { warnings: string[] };
+
+/** What GET /api/scan answers for an organization: the repositories with skills, grouped, and warnings. */
+export type OrganizationAnswer = {
+  /** `repositories`: how many it has, forks left out. */
+  organization: { id: string; url: string; repositories: number };
+  repositories: RepositoryAnswer[];
   warnings: string[];
 };
+
+/** A repository's skills as the page shows them. */
+function repositoryAnswer({ repository, skills }: ScanResult): RepositoryAnswer {
+  return {
+    repository: { id: repository.id, url: repository.url, commit: repository.commit },
+    skills: skills.map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description.replace(/\s+/g, ' ').trim(),
+      summary: firstSentence(skill.description),
+      path: skill.path,
+      link: skillLink(repository, skill),
+      copies: skill.copies,
+      text: skill.text,
+    })),
+  };
+}
 
 export function createWebServer({ open, repositories }: WebOptions): Server {
   return createServer(async (request, response) => {
@@ -65,22 +93,19 @@ export function createWebServer({ open, repositories }: WebOptions): Server {
     const repo = url.searchParams.get('repo')?.trim();
     if (!repo) return send(400, 'application/json', JSON.stringify({ error: 'Enter a repository link' }));
     try {
-      const result = await scan(await open(repo));
-      const { repository } = result;
-      const answer: ScanAnswer = {
-        repository: { id: repository.id, url: repository.url, commit: repository.commit },
-        skills: result.skills.map((skill) => ({
-          id: skill.id,
-          name: skill.name,
-          description: skill.description.replace(/\s+/g, ' ').trim(),
-          summary: firstSentence(skill.description),
-          path: skill.path,
-          link: skillLink(repository, skill),
-          copies: skill.copies,
-          text: skill.text,
-        })),
-        warnings: result.warnings,
-      };
+      const opened = await open(repo);
+      let answer: ScanAnswer | OrganizationAnswer;
+      if (isOrganization(opened)) {
+        const result = await scanOrganization(opened);
+        answer = {
+          organization: { ...result.organization, repositories: result.repositories },
+          repositories: result.results.map(repositoryAnswer),
+          warnings: result.warnings,
+        };
+      } else {
+        const result = await scan(opened);
+        answer = { ...repositoryAnswer(result), warnings: result.warnings };
+      }
       send(200, 'application/json', JSON.stringify(answer));
     } catch (error) {
       if (error instanceof AtlasError) return send(400, 'application/json', JSON.stringify({ error: error.message }));
@@ -126,6 +151,9 @@ const PAGE = `<!doctype html>
   main { display: grid; grid-template-columns: minmax(240px, 340px) 1fr; min-height: 60vh; }
   #skills { list-style: none; margin: 0; padding: 0; border-right: 1px solid var(--border); overflow: auto; }
   #skills li { padding: 10px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  #skills li.group { padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: default; background: #8881; position: sticky; top: 0; }
+  #skills li.group a { color: inherit; text-decoration: none; }
+  #skills li.group a:hover { text-decoration: underline; }
   #skills li[aria-selected="true"] { background: #4a7cf022; }
   #skills .name { font-weight: 600; }
   #skills .description { color: var(--muted); font-size: 13px; }
@@ -149,7 +177,7 @@ const PAGE = `<!doctype html>
 <header>
   <h1>Skill Atlas</h1>
   <form id="form">
-    <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo" aria-label="Repository link" list="repositories" autocomplete="off" autofocus>
+    <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo, or https://github.com/owner" aria-label="Repository link" list="repositories" autocomplete="off" autofocus>
     <datalist id="repositories"></datalist>
     <button id="scan" type="submit">Scan</button>
   </form>
@@ -199,7 +227,7 @@ function fold(short, text) {
 }
 
 function show(skill, item) {
-  for (const other of $('skills').children) other.setAttribute('aria-selected', String(other === item));
+  for (const other of $('skills').querySelectorAll('li[role="option"]')) other.setAttribute('aria-selected', String(other === item));
   const view = $('skill');
   view.replaceChildren(el('h2', '', skill.name));
   const link = el('a', '', skill.link);
@@ -209,6 +237,23 @@ function show(skill, item) {
   view.append(link);
   if (skill.copies.length) view.append(el('div', 'copies', 'also in ' + skill.copies.join(', ')));
   view.append(el('pre', 'skill-md', skill.text));
+}
+
+function count(n, one, many) {
+  return n + ' ' + (n === 1 ? one : many || one + 's');
+}
+
+// Each skill, its name and description; a click selects it.
+function list(skills) {
+  for (const skill of skills) {
+    const item = el('li');
+    item.setAttribute('role', 'option');
+    item.append(el('div', 'name', skill.name));
+    if (skill.description) item.append(description(skill));
+    item.addEventListener('click', () => show(skill, item));
+    $('skills').append(item);
+    foldIfClamped(item, skill);
+  }
 }
 
 async function scan(repo) {
@@ -222,19 +267,30 @@ async function scan(repo) {
     const response = await fetch('/api/scan?repo=' + encodeURIComponent(repo));
     const answer = await response.json();
     if (!response.ok) throw new Error(answer.error);
-    const count = answer.skills.length;
-    $('status').textContent = answer.repository.id + ' · ' + count + (count === 1 ? ' skill' : ' skills');
     for (const warning of answer.warnings) $('warnings').append(el('li', '', warning));
-    for (const skill of answer.skills) {
-      const item = el('li');
-      item.setAttribute('role', 'option');
-      item.append(el('div', 'name', skill.name));
-      if (skill.description) item.append(description(skill));
-      item.addEventListener('click', () => show(skill, item));
-      $('skills').append(item);
-      foldIfClamped(item, skill);
+    if (answer.organization) {
+      // An organization: a heading per repository, its skills under it.
+      const skills = answer.repositories.reduce((sum, group) => sum + group.skills.length, 0);
+      const total = answer.organization.repositories;
+      $('status').textContent = answer.organization.id + ' · ' + count(skills, 'skill') + ' in ' + answer.repositories.length +
+        ' of ' + count(total, 'repository', 'repositories');
+      for (const group of answer.repositories) {
+        const heading = el('li', 'group');
+        heading.setAttribute('role', 'presentation');
+        const link = el('a', '', group.repository.id + ' · ' + count(group.skills.length, 'skill'));
+        link.href = group.repository.url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        heading.append(link);
+        $('skills').append(heading);
+        list(group.skills);
+      }
+    } else {
+      $('status').textContent = answer.repository.id + ' · ' + count(answer.skills.length, 'skill');
+      list(answer.skills);
     }
-    if (count) show(answer.skills[0], $('skills').firstElementChild);
+    const first = $('skills').querySelector('li[role="option"]');
+    if (first) first.click();
   } catch (error) {
     $('status').className = 'error';
     $('status').textContent = error.message;

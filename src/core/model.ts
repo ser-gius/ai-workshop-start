@@ -1,3 +1,11 @@
+/** A GitHub organization, or a user's account: the owner of repositories. */
+export type Organization = {
+  /** The owner's login, for example `JetBrains`. */
+  id: string;
+  /** `https://github.com/<owner>`. */
+  url: string;
+};
+
 /** A scanned repository. The hierarchy is organization → repository → skill. */
 export type Repository = {
   /** `owner/name`, for example `JetBrains/kotlin`; a local directory's name. */
@@ -35,10 +43,14 @@ export function skillLink(repository: Repository, skill: Skill): string {
   return skill.commit ? `${repository.url}/blob/${skill.commit}/${path}` : `${repository.url}/${path}`;
 }
 
+/** By code point, whatever the locale. */
+export function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /** By name, then by path: the same order everywhere, whatever the locale. */
 export function sortSkills(skills: Skill[]): Skill[] {
-  const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-  return [...skills].sort((a, b) => compare(a.name, b.name) || compare(a.path, b.path));
+  return [...skills].sort((a, b) => compareText(a.name, b.name) || compareText(a.path, b.path));
 }
 
 /** A description on one line, up to the end of its first sentence: what lists show. */

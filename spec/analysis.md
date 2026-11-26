@@ -1,8 +1,8 @@
 # Repository analysis
 ## Input
-A **GitHub repository** URL, or a local directory
+A **GitHub repository** URL, a **GitHub organization** URL, or a local directory
 ## Output
-Every `SKILL.md`: **name**, **description**, **link**
+Every `SKILL.md`: **name**, **description**, **link**; for an organization, *grouped by repository*
 ## Architecture
 Core: fetch → find → parse. CLI: a *thin client*.
 Skill: id = `repo:path`, name, description, commit
@@ -16,6 +16,23 @@ Skill: id = `repo:path`, name, description, commit
 - Malformed front matter → a *warning*, the scan goes on
 - Unreachable repository → a clear message, exit code 1
 - A **private** repository, with a `GITHUB_TOKEN` that can read it: listed *and read* with the token
+- An empty repository (no commit yet) → `Repository is empty: <URL>`, exit code 1
+
+## An organization
+`github.com/<owner>`: every repository of an organization, or of a user's account, at its default branch.
+- Its repositories: GitHub's list, `/orgs/<owner>/repos` (`/users/<owner>/repos` for a user), 100 a page;
+  the pages its public repositories need *at once*, then the next while a page is full (private ones)
+- **Forks** are left out: their skills are their upstream's
+- With `GITHUB_TOKEN`: *one* code search over the whole organization (`org:<owner>`), not one per repository;
+  at the same time as the list; only the repositories it finds are read. Without it: each repository's tree, as above
+- Code search returns at most *1000* files: more `SKILL.md` than that → a *warning*, some may be missing
+- Each repository: the rules above, skills and copies within that repository only
+- Listed: the repositories **with skills**, sorted by `owner/name`, ignoring case; the others are only counted
+- A repository's warning, prefixed with `owner/name`, as a *warning*; so is one that fails
+  (`JetBrains/x: Commit not found: …; skipped`): the scan goes on
+- An empty repository → no skills, no warning
+- Unknown organization → `Organization not found: <URL>`, exit code 1
+- A rejected token, the rate limit, GitHub unreachable → the whole scan stops: a clear message, exit code 1
 
 ## What is a project skill?
 `<root>/<name>/SKILL.md`, where `<root>` is a folder named `skills`:
