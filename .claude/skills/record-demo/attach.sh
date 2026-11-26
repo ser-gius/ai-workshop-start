@@ -9,7 +9,14 @@ set -euo pipefail
 
 [ $# -ge 2 ] || { echo "usage: attach.sh <pr-number> <file.mp4|file.png|file.gif>..." >&2; exit 2; }
 pr=$1; shift
-for f in "$@"; do [ -f "$f" ] || { echo "no such file: $f" >&2; exit 1; }; done
+for f in "$@"; do
+  [ -f "$f" ] || { echo "no such file: $f" >&2; exit 1; }
+  # Checked before anything is pushed: an unsupported file is never uploaded.
+  case "$f" in
+    *.mp4|*.png|*.gif|*.jpg|*.jpeg) ;;
+    *) echo "not an MP4 or an image: $f" >&2; exit 1 ;;
+  esac
+done
 
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 branch=demo-assets
@@ -42,7 +49,6 @@ for f in "$@"; do
       md+="IMG:$dir/$gif:$name"$'\n'"MP4:$dir/$name"$'\n' ;;
     *.png|*.gif|*.jpg|*.jpeg)
       md+="IMG:$dir/$name:$name"$'\n' ;;
-    *) echo "skipping $name: not an MP4 or an image" >&2 ;;
   esac
 done
 
