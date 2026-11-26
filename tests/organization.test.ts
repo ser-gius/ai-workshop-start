@@ -190,7 +190,7 @@ test("GitHub's rate limit with a short wait → waits as it asks, then asks agai
   assert.equal(source.sources.length, 4);
 });
 
-test("GitHub's rate limit: a wait over a minute, no wait given, or still limited after two waits → the scan stops", async () => {
+test("GitHub's rate limit: a wait over a minute (and how long), no wait given, or still limited after two waits → the scan stops", async () => {
   const limitedWith = (answer: () => Response) => {
     let asked = 0;
     const recorded = replay(ORGANIZATION);
@@ -198,14 +198,14 @@ test("GitHub's rate limit: a wait over a minute, no wait given, or still limited
     return { scan: openOrganization('github.com/octo-org', { fetch, token: 'test' }), asked: () => asked };
   };
   const message = { message: 'GitHub rate limit reached; try again in a minute' };
-  const hour = limitedWith(() =>
+  const later = limitedWith(() =>
     Response.json(
       { message: 'API rate limit exceeded for user ID 1.' },
-      { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 3600) } },
+      { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 3030) } },
     ),
   );
-  await assert.rejects(hour.scan, message);
-  assert.equal(hour.asked(), 1, 'an hour is not waited for');
+  await assert.rejects(later.scan, { message: 'GitHub rate limit reached; try again in 51 minutes' }, 'how long, as GitHub says');
+  assert.equal(later.asked(), 1, '50 minutes are not waited for');
   const silent = limitedWith(() => Response.json({ message: 'Too many requests' }, { status: 429 }));
   await assert.rejects(silent.scan, message);
   assert.equal(silent.asked(), 1);

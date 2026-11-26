@@ -283,7 +283,9 @@ function client({ fetch, token }: GitHubOptions) {
         await new Promise((resolve) => setTimeout(resolve, wait));
         return request(url, notFound, attempt + 1);
       }
-      throw stop(`GitHub rate limit reached; ${token ? 'try again in a minute' : 'set GITHUB_TOKEN'}`);
+      // How long, when GitHub says and it is longer than a minute.
+      const later = wait !== undefined && wait > RETRY_WAIT ? `${Math.ceil(wait / 60_000)} minutes` : 'a minute';
+      throw stop(`GitHub rate limit reached; ${token ? `try again in ${later}` : 'set GITHUB_TOKEN'}`);
     }
     if (response.status === 401) throw stop('GitHub rejected the token in GITHUB_TOKEN');
     throw new AtlasError(`GitHub answered ${response.status} for ${url}${text && `: ${text}`}`);
