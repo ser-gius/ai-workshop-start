@@ -5,6 +5,10 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - A request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` → 403 (no DNS rebinding)
 ## Page
 - A **field** for a repository link: a GitHub URL, a GitHub organization URL, or a local directory
+- The **header** on one row: `Skill Atlas`, the field and its *Scan* button, then what was scanned (`JetBrains/kotlin · 6 skills`)
+- The skills and their **filter** show only *once a scan has answered*: before a scan, while it runs, and on
+  a failure, only the header (and the organization's card while it scans)
+- No skill selected (no match, or no skills) → the SKILL.md view says `Select a skill to read its SKILL.md.`
 - The repository and its skill count, then **every skill**: name, description and the **day** it last changed
   ([analysis](analysis.md#when-a-skill-last-changed)), sorted by name
   - The day, `2026-11-20` (UTC), under the name; its whole time on hover

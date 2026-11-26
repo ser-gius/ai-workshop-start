@@ -134,6 +134,8 @@ async function openPage(t: { after(fn: () => void): void }, query: string) {
       return view;
     },
     noMatch: () => $('no-match').textContent,
+    /** The SKILL.md view's hint while no skill is selected; null when one is. */
+    placeholder: () => document.querySelector('#skill .placeholder')?.textContent ?? null,
     /** The pill in the filter field. */
     count: () => $('count').textContent,
     /** Each shown skill's name and its snippet, or its folded description, the highlights in [brackets]. */
@@ -778,4 +780,36 @@ test('./skill-atlas serve with a wrong argument → usage, exit code 1', () => {
   const wrong = spawnSync(process.execPath, [CLI, 'serve', '--port', 'x'], { encoding: 'utf8' });
   assert.equal(wrong.status, 1);
   assert.equal(wrong.stderr, 'Usage: skill-atlas serve [--port <number>]\n');
+});
+
+test('the filter and the skills show only once a scan has answered: not before, not while scanning, not on a failure', async (t) => {
+  const results = (document: Document) => (document.getElementById('results') as HTMLElement).hidden;
+  const blank = await pageAt(t, '');
+  assert.equal(results(blank.document), true, 'no scan yet: only the field');
+
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const scanning = await pageAt(t, FIXTURE, async () => {
+    await held;
+    return fetch(`${url}api/scan?repo=${encodeURIComponent(FIXTURE)}`);
+  });
+  assert.equal(results(scanning.document), true, 'while scanning: hidden');
+  release();
+  await scanning.scanned();
+  assert.equal(results(scanning.document), false, 'scanned: the filter and the skills');
+  assert.equal(scanning.document.getElementById('status')!.textContent, 'fixture · 7 skills');
+
+  const failed = await pageAt(t, 'https://github.com/no-such-org');
+  await failed.scanned();
+  assert.equal(results(failed.document), true, 'a failure: only its message');
+  assert.equal(failed.document.getElementById('status')!.textContent, 'Organization not found: https://github.com/no-such-org');
+});
+
+test('no skill selected: the SKILL.md view says how to read one', async (t) => {
+  const page = await openPage(t, fixtureQuery('zzz'));
+  assert.equal(page.selected(), null);
+  assert.equal(page.placeholder(), 'Select a skill to read its SKILL.md.');
+  page.type('');
+  assert.equal(page.selected(), 'aspect-generator');
+  assert.equal(page.placeholder(), null, 'a skill selected: its SKILL.md instead');
 });
