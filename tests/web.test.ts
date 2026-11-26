@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { createBrowserBackend } from '../src/browser.ts';
 import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
-import { serve, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
+import { matchesFilter, serve, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
 import { CLI, EXAMPLE_COMMIT, FIXTURE, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
 
 // The token goes to GitHub with every /user/repos request.
@@ -68,6 +68,53 @@ test('descriptions are trimmed to their first sentence and foldable to the whole
   assert.match(page, /summary::before \{ content: '▸'; \}/, 'a marker shows that it unfolds');
   assert.match(page, /\.whole::before \{ content: '▾ '; \}/, 'and that it folds');
   assert.match(page, /event\.stopPropagation\(\)/, 'folding does not select the skill');
+});
+
+/** The fixture's skills that the filter keeps, by name. */
+async function filtered(filter: string): Promise<string[]> {
+  const { body } = await scan(FIXTURE);
+  return body.skills.filter((skill) => matchesFilter(skill, filter)).map((skill) => skill.name);
+}
+
+test('the filter: every word, in any order, in the name or the description', async () => {
+  assert.deepEqual(await filtered('use before'), ['code-style', 'reviews', 'run-tests']);
+  assert.deepEqual(await filtered('before use'), ['code-style', 'reviews', 'run-tests'], 'in any order');
+  assert.deepEqual(await filtered('this repository'), ['commits', 'lint-checks', 'reviews']);
+  assert.deepEqual(await filtered('checklist'), ['release-checklist'], 'in the name only');
+  assert.deepEqual(await filtered('kotlin'), ['code-style'], 'in the description only');
+  assert.deepEqual(await filtered('generator plugin'), ['aspect-generator'], 'one in the name, another in the description');
+  assert.deepEqual(await filtered('generator merging'), [], 'every word must match');
+});
+
+test('the filter: part of a word, case-insensitive', async () => {
+  assert.deepEqual(await filtered('chec'), ['lint-checks', 'release-checklist'], 'as you type');
+  assert.deepEqual(await filtered('REVIEW'), ['reviews']);
+  assert.deepEqual(await filtered('Use Before'), ['code-style', 'reviews', 'run-tests']);
+});
+
+test('the filter: empty or only spaces → every skill; no match → none', async () => {
+  const every = ['aspect-generator', 'code-style', 'commits', 'lint-checks', 'release-checklist', 'reviews', 'run-tests'];
+  assert.deepEqual(await filtered(''), every);
+  assert.deepEqual(await filtered('   '), every);
+  assert.deepEqual(await filtered('  use   before  '), ['code-style', 'reviews', 'run-tests'], 'extra spaces');
+  assert.deepEqual(await filtered('no-such-word'), []);
+});
+
+test('the page filters as you type, with the same filter, and links to the filtered view', async () => {
+  const page = await (await fetch(url)).text();
+  assert.match(page, /<input id="filter"[^>]*aria-label="Filter skills"/, 'a filter field');
+  assert.ok(page.includes(String(matchesFilter)), 'the page runs the tested filter');
+  assert.match(page, /\$\('filter'\)\.addEventListener\('input', /, 'as you type, no new scan');
+  assert.match(page, /item\.hidden = !matchesFilter\(skill, filter\)/);
+  assert.match(page, /shown \+ ' of ' \+ total/, 'the count shows the matches');
+  assert.match(page, /'No skills match "' \+ filter\.trim\(\) \+ '"'/, 'no match: a message');
+  assert.match(page, /if \(!shown\) \{[^}]*\$\('skill'\)\.replaceChildren\(\)/, 'and no selected skill');
+  assert.match(page, /if \(!selected \|\| selected\.item\.hidden\)/, 'the selected skill stays while it matches');
+  assert.match(page, /get\('filter'\)/, '?filter= on load');
+  assert.match(page, /params\.delete\('filter'\)/, 'an empty filter drops the parameter');
+  assert.match(page, /params\.set\('filter', filter\.trim\(\)\)/, 'typing updates the link');
+  assert.doesNotMatch(page, /\$\('filter'\)\.value = ''/, 'a new scan keeps the filter');
+  assert.doesNotMatch(page, /innerHTML/, 'the filter is shown as text');
 });
 
 test('a GitHub repository: its skills, each with its pinned link and its SKILL.md', async () => {

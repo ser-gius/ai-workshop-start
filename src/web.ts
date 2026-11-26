@@ -89,6 +89,16 @@ export function createWebServer({ open, repositories }: WebOptions): Server {
   });
 }
 
+/**
+ * Whether a skill matches the filter field: every word (split on spaces), in any order, as part of
+ * a word in its name or description, case-insensitive. No words → every skill.
+ * The page runs this very function, so it stays plain JavaScript once its types are stripped.
+ */
+export function matchesFilter(skill: { name: string; description: string }, filter: string): boolean {
+  const text = (skill.name + ' ' + skill.description).toLowerCase();
+  return filter.toLowerCase().split(/\s+/).filter(Boolean).every((word) => text.includes(word));
+}
+
 /** Starts the server on 127.0.0.1 and resolves with its address once it listens. */
 export async function serve(options: WebOptions & { port: number }): Promise<{ server: Server; url: string }> {
   const server = createWebServer(options);
@@ -124,7 +134,12 @@ const PAGE = `<!doctype html>
   #status.error { color: #d33; }
   #warnings { margin: 6px 0 0; padding-left: 20px; color: #c80; font-size: 13px; }
   main { display: grid; grid-template-columns: minmax(240px, 340px) 1fr; min-height: 60vh; }
-  #skills { list-style: none; margin: 0; padding: 0; border-right: 1px solid var(--border); overflow: auto; }
+  #list { border-right: 1px solid var(--border); overflow: auto; }
+  #filter { display: block; width: calc(100% - 24px); margin: 10px 12px; }
+  #no-match { margin: 10px 16px; color: var(--muted); }
+  #no-match:empty { display: none; }
+  #skills { list-style: none; margin: 0; padding: 0; }
+  #skills li[hidden] { display: none; }
   #skills li { padding: 10px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
   #skills li[aria-selected="true"] { background: #4a7cf022; }
   #skills .name { font-weight: 600; }
@@ -158,11 +173,20 @@ const PAGE = `<!doctype html>
   <ul id="warnings"></ul>
 </header>
 <main>
-  <ul id="skills" role="listbox" aria-label="Skills"></ul>
+  <div id="list">
+    <input id="filter" type="search" placeholder="Filter by words in a name or description" aria-label="Filter skills" autocomplete="off">
+    <ul id="skills" role="listbox" aria-label="Skills"></ul>
+    <p id="no-match"></p>
+  </div>
   <section id="skill"></section>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
+${matchesFilter}
+
+// The last scan: its repository, and each skill with its item in the list; the selected one.
+let scanned = null;
+let selected = null;
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -199,6 +223,7 @@ function fold(short, text) {
 }
 
 function show(skill, item) {
+  selected = { skill, item };
   for (const other of $('skills').children) other.setAttribute('aria-selected', String(other === item));
   const view = $('skill');
   view.replaceChildren(el('h2', '', skill.name));
@@ -211,7 +236,44 @@ function show(skill, item) {
   view.append(el('pre', 'skill-md', skill.text));
 }
 
+// Narrows the list to the skills that match the filter field; no new scan.
+function applyFilter() {
+  if (!scanned) return;
+  const filter = $('filter').value;
+  let shown = 0;
+  for (const { skill, item } of scanned.entries) {
+    item.hidden = !matchesFilter(skill, filter);
+    if (!item.hidden) shown++;
+  }
+  const total = scanned.entries.length;
+  const skills = total === 1 ? ' skill' : ' skills';
+  $('status').textContent = scanned.id + ' · ' + (shown === total ? total + skills : shown + ' of ' + total + skills);
+  $('no-match').textContent = total && !shown ? 'No skills match "' + filter.trim() + '"' : '';
+  if (!shown) {
+    selected = null;
+    for (const item of $('skills').children) item.setAttribute('aria-selected', 'false');
+    $('skill').replaceChildren();
+  } else if (!selected || selected.item.hidden) {
+    const first = scanned.entries.find(({ item }) => !item.hidden);
+    show(first.skill, first.item);
+  }
+}
+
+// The link of this view: ?repo= for the scan, ?filter= for the filter field while it has words.
+function updateLink(repo) {
+  const params = new URLSearchParams(location.search);
+  if (repo !== undefined) params.set('repo', repo);
+  const filter = $('filter').value;
+  if (filter.trim()) params.set('filter', filter.trim());
+  else params.delete('filter');
+  const query = params.toString();
+  history.replaceState(null, '', query ? '?' + query : location.pathname);
+}
+
 async function scan(repo) {
+  scanned = null;
+  selected = null;
+  $('no-match').textContent = '';
   $('scan').disabled = true;
   $('status').className = '';
   $('status').textContent = 'Scanning ' + repo + '…';
@@ -222,8 +284,7 @@ async function scan(repo) {
     const response = await fetch('/api/scan?repo=' + encodeURIComponent(repo));
     const answer = await response.json();
     if (!response.ok) throw new Error(answer.error);
-    const count = answer.skills.length;
-    $('status').textContent = answer.repository.id + ' · ' + count + (count === 1 ? ' skill' : ' skills');
+    scanned = { id: answer.repository.id, entries: [] };
     for (const warning of answer.warnings) $('warnings').append(el('li', '', warning));
     for (const skill of answer.skills) {
       const item = el('li');
@@ -233,8 +294,9 @@ async function scan(repo) {
       item.addEventListener('click', () => show(skill, item));
       $('skills').append(item);
       foldIfClamped(item, skill);
+      scanned.entries.push({ skill, item });
     }
-    if (count) show(answer.skills[0], $('skills').firstElementChild);
+    applyFilter();
   } catch (error) {
     $('status').className = 'error';
     $('status').textContent = error.message;
@@ -247,8 +309,13 @@ $('form').addEventListener('submit', (event) => {
   event.preventDefault();
   const repo = $('repo').value.trim();
   if (!repo) return;
-  history.replaceState(null, '', '?repo=' + encodeURIComponent(repo));
+  updateLink(repo);
   scan(repo);
+});
+
+$('filter').addEventListener('input', () => {
+  applyFilter();
+  updateLink();
 });
 
 // The user's repositories as suggestions in the field: picking one fills in its URL.
@@ -268,6 +335,7 @@ async function suggest() {
 }
 suggest();
 
+$('filter').value = new URLSearchParams(location.search).get('filter') || '';
 const initial = new URLSearchParams(location.search).get('repo');
 if (initial) { $('repo').value = initial; scan(initial); }
 </script>

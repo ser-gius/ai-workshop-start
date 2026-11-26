@@ -16,6 +16,18 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - Warnings under the field; an unreachable repository → its *clear message*, no skills
 - `?repo=<link>` scans at once, so a scan has a link of its own
 - A SKILL.md is shown as **text**, never as HTML
+## Filter
+A **filter field** above the skill list narrows it *as you type*, no new scan
+- Its **words** (split on spaces) are matched against a skill's **name** and whole **description**:
+  every word, *in any order*, as part of a word, case-insensitive; one in the name, another in the description is a match
+  `use before` → `code-style`, `reviews`, `run-tests`; `generator plugin` → `aspect-generator`
+- Empty, or only spaces → every skill
+- The count shows the matches: `fixture · 3 of 7 skills`
+- No match → `No skills match "<filter>"`, no selected skill
+- The selected skill stays while it matches; else the first match is selected
+- A new scan keeps the filter
+- `?filter=<words>`, with `?repo=`: the filtered view has a link of its own; typing updates the link,
+  an empty filter drops the parameter
 ## API
 `GET /api/scan?repo=<link>` → JSON `{ repository, skills, warnings }`; a skill has `name`,
 `description` (on one line), `summary` (its first sentence), `path`, `link`, `copies` and `text`, the SKILL.md
