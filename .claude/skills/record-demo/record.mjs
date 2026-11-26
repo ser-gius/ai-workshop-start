@@ -81,6 +81,10 @@ if (args.includes('--list') || !args.length) {
   process.exit(args.length ? 0 : 1);
 }
 const outAt = args.indexOf('--out');
+if (outAt >= 0 && (!args[outAt + 1] || CASES[args[outAt + 1]] || args[outAt + 1].startsWith('--'))) {
+  console.error('--out needs a file name: --out <file.mp4>');
+  process.exit(1);
+}
 const out = resolve(outAt >= 0 ? args.splice(outAt, 2)[1] : join(process.env.AIR_ARTIFACTS_DIR ?? '.', 'demo.mp4'));
 const unknown = args.filter((a) => !CASES[a]);
 if (unknown.length) { console.error(`Unknown case: ${unknown.join(', ')}; --list lists them`); process.exit(1); }
