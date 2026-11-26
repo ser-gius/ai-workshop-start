@@ -60,6 +60,21 @@ export function recordRepository(id: string, files: Record<string, string>): Rec
   return recording;
 }
 
+/** A page of the token's user's repositories, most recently pushed first, as GitHub is asked for it. */
+export const userReposUrl = (page: number) => `https://api.github.com/user/repos?sort=pushed&per_page=100&page=${page}`;
+
+/** What GitHub answers for the token's user: a full first page of 100 repositories, then one more. */
+export const USER_REPOSITORIES: Recording = {
+  [userReposUrl(1)]: {
+    status: 200,
+    body: [
+      { full_name: 'JetBrains/example', description: 'A small repository with one skill' },
+      ...Array.from({ length: 99 }, (_, i) => ({ full_name: `octocat/repo-${i + 1}`, description: null })),
+    ],
+  },
+  [userReposUrl(2)]: { status: 200, body: [{ full_name: 'octocat/last', description: 'The 101st' }] },
+};
+
 /** `skill-atlas scan <url>`, with GitHub answering from the recording. */
 export async function atlasOn(recording: Recording, url: string) {
   const stdout: string[] = [];

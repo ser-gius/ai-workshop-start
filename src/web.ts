@@ -1,15 +1,22 @@
 // The local web view: a page with a field for a repository link, its skills and their SKILL.md.
-// The same core as the CLI; the page asks GET /api/scan?repo=<URL> and renders the answer.
+// The same core as the CLI; the page asks GET /api/scan?repo=<URL> and renders the answer, and
+// GET /api/repositories for the user's GitHub repositories to suggest in the field.
 // Nothing is stored: every scan is fresh.
 import { createServer, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
+import type { UserRepositories } from './core/github.ts';
 import { skillLink } from './core/model.ts';
 import { scan, type Source } from './core/scan.ts';
 
 export type WebOptions = {
   /** Opens what the user typed into the field. */
   open(input: string): Promise<Source>;
+  /** The user's repositories, suggested in the field; none without it. */
+  repositories?(): Promise<UserRepositories>;
 };
+
+/** What GET /api/repositories answers: the suggestions, a hint without a token, or GitHub's failure. */
+export type RepositoriesAnswer = UserRepositories & { error?: string };
 
 /** What GET /api/scan answers: the repository, each skill with its link and SKILL.md, and warnings. */
 export type ScanAnswer = {
@@ -18,7 +25,7 @@ export type ScanAnswer = {
   warnings: string[];
 };
 
-export function createWebServer({ open }: WebOptions): Server {
+export function createWebServer({ open, repositories }: WebOptions): Server {
   return createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     const send = (status: number, type: string, body: string) => {
@@ -32,6 +39,16 @@ export function createWebServer({ open }: WebOptions): Server {
     }
     if (request.method !== 'GET') return send(405, 'text/plain', 'Method not allowed');
     if (url.pathname === '/') return send(200, 'text/html', PAGE);
+    if (url.pathname === '/api/repositories') {
+      // Only suggestions: a failure is a message beside the field, never a broken page.
+      let answer: RepositoriesAnswer;
+      try {
+        answer = repositories ? await repositories() : { repositories: [] };
+      } catch (error) {
+        answer = { repositories: [], error: error instanceof Error ? error.message : String(error) };
+      }
+      return send(200, 'application/json', JSON.stringify(answer));
+    }
     if (url.pathname !== '/api/scan') return send(404, 'text/plain', 'Not found');
 
     const repo = url.searchParams.get('repo')?.trim();
@@ -89,6 +106,8 @@ const PAGE = `<!doctype html>
   input { flex: 1; padding: 8px 10px; font: inherit; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: inherit; }
   button { padding: 8px 16px; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: white; cursor: pointer; }
   button:disabled { opacity: .6; cursor: wait; }
+  #suggestions { margin-top: 4px; color: var(--muted); font-size: 12px; }
+  #suggestions:empty { display: none; }
   #status { margin-top: 10px; color: var(--muted); min-height: 1.4em; }
   #status.error { color: #d33; }
   #warnings { margin: 6px 0 0; padding-left: 20px; color: #c80; font-size: 13px; }
@@ -109,9 +128,11 @@ const PAGE = `<!doctype html>
 <header>
   <h1>Skill Atlas</h1>
   <form id="form">
-    <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo" aria-label="Repository link" autofocus>
+    <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo" aria-label="Repository link" list="repositories" autocomplete="off" autofocus>
+    <datalist id="repositories"></datalist>
     <button id="scan" type="submit">Scan</button>
   </form>
+  <div id="suggestions"></div>
   <div id="status"></div>
   <ul id="warnings"></ul>
 </header>
@@ -179,6 +200,23 @@ $('form').addEventListener('submit', (event) => {
   history.replaceState(null, '', '?repo=' + encodeURIComponent(repo));
   scan(repo);
 });
+
+// The user's repositories as suggestions in the field: picking one fills in its URL.
+async function suggest() {
+  try {
+    const answer = await (await fetch('/api/repositories')).json();
+    for (const repository of answer.repositories) {
+      const option = document.createElement('option');
+      option.value = repository.url;
+      option.label = repository.description ? repository.full_name + ' — ' + repository.description : repository.full_name;
+      $('repositories').append(option);
+    }
+    $('suggestions').textContent = answer.error ? 'Your repositories: ' + answer.error : answer.hint || '';
+  } catch (error) {
+    $('suggestions').textContent = 'Your repositories: ' + error.message;
+  }
+}
+suggest();
 
 const initial = new URLSearchParams(location.search).get('repo');
 if (initial) { $('repo').value = initial; scan(initial); }
