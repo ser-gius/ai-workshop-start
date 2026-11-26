@@ -99,7 +99,7 @@ const url = await new Promise((ok, fail) => {
 });
 
 const videos = mkdtempSync(join(tmpdir(), 'demo-'));
-// The WebM goes once it is converted, or when a case fails.
+// The server and the WebM go once the video is converted, or when anything fails (even launching Chrome).
 try {
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome' });
   const size = { width: 1280, height: 800 };
@@ -121,11 +121,11 @@ try {
   } finally {
     await context.close();
     await browser.close();
-    server.kill();
   }
   const webm = join(videos, readdirSync(videos)[0]);
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', webm, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23', '-movflags', '+faststart', out]);
 } finally {
+  server.kill();
   rmSync(videos, { recursive: true, force: true });
 }
 console.log(out);
