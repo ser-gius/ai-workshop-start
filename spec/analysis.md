@@ -9,7 +9,10 @@ Skill: id = `repo:path`, name, description, commit
 ## Details
 - **GitHub API**, no clone; *under 5 s* for intellij-community
 - The name: front matter, else the directory
-- The link pins the *scanned commit*
+- The link pins the *scanned commit*: the default branch's, or the one in the URL
+- A fixed commit is listed through its tree: code search sees only the default branch.
+  A tree too large for one answer is listed a directory at a time, a few requests at once
+- Unknown commit → a clear message, exit code 1
 - Malformed front matter → a *warning*, the scan goes on
 - Unreachable repository → a clear message, exit code 1
 
@@ -24,6 +27,7 @@ or one specific to the repository, such as a plugin's `…/skills`.
 - Anything else → not a skill: a `SKILL.md` outside a `skills` folder, or below a skill
 
 ## Edge cases
+Each is checked end to end on the real repository at a fixed commit (`tests/e2e`).
 - **Duplicates in `.agents` and `.claude`**: the same skill, one copy per agent.
   ```
   JetBrains/MPS · mps-tests
