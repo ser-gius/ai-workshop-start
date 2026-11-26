@@ -22,7 +22,13 @@ A **filter field** above the skill list narrows it *as you type*, no new scan
   every word, *in any order*, as part of a word, case-insensitive; one in the name, another in the description is a match
   `use before` → `code-style`, `reviews`, `run-tests`; `generator plugin` → `aspect-generator`
 - Empty, or only spaces → every skill
-- The count shows the matches: `fixture · 3 of 7 skills`
+- The count shows the matches: `fixture · 3 of 7 skills`; and in the filter field, a **pill**: `3 of 7` while
+  it has words, else `7 skills`
+- A match is **highlighted**, in the name and in the description: every occurrence of every word,
+  case-insensitive (`test` highlights `teSt` and `Test`)
+- While a word is in the description, the skill shows a **snippet** of it instead, on one line: from the start of
+  a word at most 30 characters before the first match, to at most 80 after it, `…` where it is cut;
+  a match in the name only → the description as without a filter
 - No match → `No skills match "<filter>"`, no selected skill
 - The selected skill stays while it matches; else the first match is selected
 - A new scan keeps the filter
