@@ -3,7 +3,7 @@
 // Nothing is stored: every scan is fresh.
 import { createServer, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
-import { skillLink } from './core/model.ts';
+import { firstSentence, skillLink } from './core/model.ts';
 import { scan, type Source } from './core/scan.ts';
 
 export type WebOptions = {
@@ -14,7 +14,18 @@ export type WebOptions = {
 /** What GET /api/scan answers: the repository, each skill with its link and SKILL.md, and warnings. */
 export type ScanAnswer = {
   repository: { id: string; url: string; commit: string };
-  skills: { id: string; name: string; description: string; path: string; link: string; copies: string[]; text: string }[];
+  skills: {
+    id: string;
+    name: string;
+    /** The whole description, on one line. */
+    description: string;
+    /** Its first sentence: the folded description. */
+    summary: string;
+    path: string;
+    link: string;
+    copies: string[];
+    text: string;
+  }[];
   warnings: string[];
 };
 
@@ -44,7 +55,8 @@ export function createWebServer({ open }: WebOptions): Server {
         skills: result.skills.map((skill) => ({
           id: skill.id,
           name: skill.name,
-          description: skill.description,
+          description: skill.description.replace(/\s+/g, ' ').trim(),
+          summary: firstSentence(skill.description),
           path: skill.path,
           link: skillLink(repository, skill),
           copies: skill.copies,
@@ -98,6 +110,10 @@ const PAGE = `<!doctype html>
   #skills li[aria-selected="true"] { background: #4a7cf022; }
   #skills .name { font-weight: 600; }
   #skills .description { color: var(--muted); font-size: 13px; }
+  #skills details.description summary { cursor: pointer; }
+  #skills details.description summary::marker { color: var(--accent); }
+  #skills details.description[open] summary { display: none; }
+  #skills details.description:not([open]) summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   #skill { padding: 16px 20px; overflow: auto; }
   #skill h2 { margin: 0 0 4px; font-size: 17px; }
   #skill a { color: var(--accent); word-break: break-all; font-size: 13px; }
@@ -127,6 +143,20 @@ const el = (tag, className, text) => {
   if (text !== undefined) node.textContent = text;
   return node;
 };
+
+// The first sentence; when there is more, a fold that opens to the whole description.
+function description(skill) {
+  if (skill.summary === skill.description) return el('div', 'description', skill.description);
+  const fold = el('details', 'description');
+  const summary = el('summary', '', skill.summary);
+  summary.title = 'Show the whole description';
+  const whole = el('div', 'whole', skill.description);
+  whole.title = 'Fold';
+  whole.addEventListener('click', (event) => { event.stopPropagation(); fold.open = false; });
+  summary.addEventListener('click', (event) => event.stopPropagation());
+  fold.append(summary, whole);
+  return fold;
+}
 
 function show(skill, item) {
   for (const other of $('skills').children) other.setAttribute('aria-selected', String(other === item));
@@ -159,7 +189,7 @@ async function scan(repo) {
       const item = el('li');
       item.setAttribute('role', 'option');
       item.append(el('div', 'name', skill.name));
-      if (skill.description) item.append(el('div', 'description', skill.description));
+      if (skill.description) item.append(description(skill));
       item.addEventListener('click', () => show(skill, item));
       $('skills').append(item);
     }

@@ -30,6 +30,21 @@ test('the page has a field for a repository link, a skill list and a SKILL.md vi
   assert.doesNotMatch(page, /innerHTML/, 'a SKILL.md is shown as text, never as HTML');
 });
 
+test('descriptions are trimmed to their first sentence and foldable to the whole', async () => {
+  const { body } = await scan(FIXTURE);
+  const summaries = Object.fromEntries(body.skills.map((skill) => [skill.name, [skill.summary, skill.description]]));
+  assert.deepEqual(summaries['run-tests'], ["Run the project's tests.", "Run the project's tests. Use before every push."]);
+  assert.deepEqual(summaries['release-checklist'], ['', ''], 'malformed front matter: no description');
+  for (const skill of body.skills) assert.doesNotMatch(skill.description, /\n/);
+
+  const page = await (await fetch(url)).text();
+  assert.match(page, /el\('details', 'description'\)/, 'a fold when there is more');
+  assert.match(page, /el\('summary', '', skill\.summary\)/, 'folded: the first sentence');
+  assert.match(page, /el\('div', 'whole', skill\.description\)/, 'unfolded: the whole description');
+  assert.match(page, /-webkit-line-clamp: 2/, 'at most two lines on screen');
+  assert.match(page, /event\.stopPropagation\(\)/, 'folding does not select the skill');
+});
+
 test('a GitHub repository: its skills, each with its pinned link and its SKILL.md', async () => {
   const { status, body } = await scan('https://github.com/JetBrains/example');
   assert.equal(status, 200);
@@ -39,6 +54,7 @@ test('a GitHub repository: its skills, each with its pinned link and its SKILL.m
       id: 'JetBrains/example:.claude/skills/commits/SKILL.md',
       name: 'commits',
       description: 'Write commit messages the way this repository does. Use for every commit.',
+      summary: 'Write commit messages the way this repository does.',
       path: '.claude/skills/commits/SKILL.md',
       link: `https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`,
       copies: [],

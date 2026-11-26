@@ -40,3 +40,9 @@ export function sortSkills(skills: Skill[]): Skill[] {
   const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   return [...skills].sort((a, b) => compare(a.name, b.name) || compare(a.path, b.path));
 }
+
+/** A description on one line, up to the end of its first sentence: what lists show. */
+export function firstSentence(text: string): string {
+  const line = text.replace(/\s+/g, ' ').trim();
+  return /^.*?[.!?](?=\s|$)/.exec(line)?.[0] ?? line;
+}
