@@ -18,6 +18,13 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - A SKILL.md is shown as **text**, never as HTML
 - An **organization**: its name, skill count and `<n> of <m> repositories`, then the skills *grouped by
   repository*: a heading per repository (`owner/name · N skills`, linked), its skills under it, as above
+- An organization's **card**, *Scan the organization*, above the skills (only for an organization):
+  - `github.com/<owner>` and a pill with its repository count (`865 repositories`, forks left out; `…` while scanning)
+  - A **progress bar**: moving while the scan runs (one request, so no percentage), full once it has answered
+  - `<n> with skills, among them`, then the **top 3** repositories by skill count, most first, a tie by name
+    ignoring case: the name without the owner, in monospace, linked, and `N skills`; then `+<n> more`
+    when there are more. With 3 or fewer: `<n> with skills`, no `+<n> more`; with none: `No repository with skills`
+  - Hidden for a repository or a local directory, and on a failure (its message shows instead)
 ## API
 `GET /api/scan?repo=<link>` → JSON `{ repository, skills, warnings }`; a skill has `name`,
 `description` (on one line), `summary` (its first sentence), `path`, `link`, `copies` and `text`, the SKILL.md

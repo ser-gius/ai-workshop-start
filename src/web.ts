@@ -134,14 +134,38 @@ const PAGE = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skill Atlas</title>
 <style>
-  :root { color-scheme: light dark; --border: #8884; --muted: #888; --accent: #4a7cf0; }
+  :root { color-scheme: light; --border: #e4e2dc; --muted: #8a8a8a; --accent: #4350c8; --page: #f8f7f3; --panel: #f6f5f1; --tile: #eceefb; }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; }
-  header { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  body { margin: 0; font: 15px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif; background: var(--page); color: #1d1d1f; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  /* An organization's card: what was scanned, how far, and the repositories with the most skills. */
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 2px 12px #0000000f; padding: 24px; margin: 14px 0 4px; max-width: 760px; }
+  .card[hidden] { display: none; }
+  .card-head { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+  .card-head h2 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+  .tile { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 14px; background: var(--tile); color: var(--accent); flex: none; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .target { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border: 2px solid var(--accent); border-radius: 12px; background: #fff; color: var(--accent); }
+  .target-name { flex: 1; font-size: 18px; color: #1d1d1f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { background: var(--accent); color: #fff; border-radius: 999px; padding: 4px 14px; font-weight: 500; white-space: nowrap; }
+  .progress { height: 6px; margin: 12px 2px; border-radius: 3px; background: #e3e4f4; overflow: hidden; }
+  .progress span { display: block; height: 100%; width: 100%; border-radius: 3px; background: var(--accent); }
+  .progress.running span { width: 30%; animation: progress 1.2s ease-in-out infinite; }
+  @keyframes progress { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .top { list-style: none; margin: 4px 0 0; padding: 0; }
+  .top li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+  .top a { color: inherit; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .top a:hover { text-decoration: underline; }
+  .top .skills { color: var(--accent); font-weight: 700; white-space: nowrap; }
+  .more { color: var(--muted); padding-top: 2px; }
+  .more:empty { display: none; }
+  header { padding: 16px 20px; background: var(--page); }
   h1 { font-size: 18px; margin: 0 0 10px; }
   form { display: flex; gap: 8px; }
-  input { flex: 1; padding: 8px 10px; font: inherit; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: inherit; }
-  button { padding: 8px 16px; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: white; cursor: pointer; }
+  input { flex: 1; padding: 8px 10px; font: inherit; border: 2px solid var(--border); border-radius: 10px; background: #fff; color: inherit; }
+  input:focus { outline: none; border-color: var(--accent); }
+  button { padding: 8px 16px; font: inherit; border: 0; border-radius: 999px; background: var(--accent); color: white; cursor: pointer; }
   button:disabled { opacity: .6; cursor: wait; }
   #suggestions { margin-top: 4px; color: var(--muted); font-size: 12px; }
   #suggestions:empty { display: none; }
@@ -154,7 +178,8 @@ const PAGE = `<!doctype html>
   #skills li.group { padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: default; background: #8881; position: sticky; top: 0; }
   #skills li.group a { color: inherit; text-decoration: none; }
   #skills li.group a:hover { text-decoration: underline; }
-  #skills li[aria-selected="true"] { background: #4a7cf022; }
+  #skills li[aria-selected="true"] { background: #4350c81a; }
+  main { background: #fff; border-top: 1px solid var(--border); }
   #skills .name { font-weight: 600; }
   #skills .description { color: var(--muted); font-size: 13px; }
   /* At most two lines, folded or not; the fold's own marker shows that it unfolds. */
@@ -182,6 +207,16 @@ const PAGE = `<!doctype html>
     <button id="scan" type="submit">Scan</button>
   </form>
   <div id="suggestions"></div>
+  <section id="organization" class="card" aria-label="Organization" hidden>
+    <div class="card-head"><span class="tile"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg></span><h2>Scan the organization</h2></div>
+    <div class="panel">
+      <div class="target"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg><span id="org-name" class="target-name"></span><span id="org-count" class="pill"></span></div>
+      <div id="org-progress" class="progress" role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+      <div id="org-label" class="label"></div>
+      <ul id="org-top" class="top"></ul>
+      <div id="org-more" class="more"></div>
+    </div>
+  </section>
   <div id="status"></div>
   <ul id="warnings"></ul>
 </header>
@@ -256,7 +291,52 @@ function list(skills) {
   }
 }
 
+// An organization's link, as the core reads it: github.com/<owner>, nothing after.
+const ORGANIZATION_URL = /^(?:https?:\\/\\/)?(?:www\\.)?github\\.com\\/([\\w.-]+)\\/?$/i;
+/** The repositories at the top of the organization's card. */
+const TOP = 3;
+
+// The card while an organization is scanned: its link, and the bar moving; no counts yet.
+function organizationScanning(owner) {
+  $('organization').hidden = false;
+  $('org-name').textContent = 'github.com/' + owner;
+  $('org-count').textContent = '…';
+  $('org-progress').className = 'progress running';
+  $('org-progress').removeAttribute('aria-valuenow');
+  $('org-label').textContent = 'Scanning…';
+  $('org-top').replaceChildren();
+  $('org-more').textContent = '';
+}
+
+// The card once scanned: the repositories, the bar full, the ones with the most skills, then how many more.
+function organizationScanned(answer) {
+  $('organization').hidden = false;
+  $('org-name').textContent = 'github.com/' + answer.organization.id;
+  $('org-count').textContent = count(answer.organization.repositories, 'repository', 'repositories');
+  $('org-progress').className = 'progress';
+  $('org-progress').setAttribute('aria-valuenow', '100');
+  const ranked = [...answer.repositories].sort((a, b) => b.skills.length - a.skills.length ||
+    a.repository.id.toLowerCase().localeCompare(b.repository.id.toLowerCase()));
+  const top = ranked.slice(0, TOP);
+  const more = ranked.length - top.length;
+  $('org-label').textContent = ranked.length ? ranked.length + ' with skills' + (more ? ', among them' : '') : 'No repository with skills';
+  $('org-top').replaceChildren(...top.map((group) => {
+    const item = el('li');
+    const link = el('a', 'mono', group.repository.id.slice(group.repository.id.indexOf('/') + 1));
+    link.href = group.repository.url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.title = group.repository.id;
+    item.append(link, el('span', 'skills', count(group.skills.length, 'skill')));
+    return item;
+  }));
+  $('org-more').textContent = more ? '+' + more + ' more' : '';
+}
+
 async function scan(repo) {
+  const owner = ORGANIZATION_URL.exec(repo);
+  if (owner) organizationScanning(owner[1]);
+  else $('organization').hidden = true;
   $('scan').disabled = true;
   $('status').className = '';
   $('status').textContent = 'Scanning ' + repo + '…';
@@ -269,6 +349,7 @@ async function scan(repo) {
     if (!response.ok) throw new Error(answer.error);
     for (const warning of answer.warnings) $('warnings').append(el('li', '', warning));
     if (answer.organization) {
+      organizationScanned(answer);
       // An organization: a heading per repository, its skills under it.
       const skills = answer.repositories.reduce((sum, group) => sum + group.skills.length, 0);
       const total = answer.organization.repositories;
@@ -292,6 +373,7 @@ async function scan(repo) {
     const first = $('skills').querySelector('li[role="option"]');
     if (first) first.click();
   } catch (error) {
+    $('organization').hidden = true;
     $('status').className = 'error';
     $('status').textContent = error.message;
   } finally {

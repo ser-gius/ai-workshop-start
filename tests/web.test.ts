@@ -5,7 +5,8 @@ import { readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
+import { JSDOM } from 'jsdom';
 import { createBrowserBackend } from '../src/browser.ts';
 import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
@@ -143,6 +144,152 @@ test('an organization: its repositories with skills, grouped, each skill with it
   assert.match(page, /el\('a', '', group\.repository\.id \+ ' · ' \+ count\(group\.skills\.length, 'skill'\)\)/, 'owner/name · N skills');
   assert.match(page, /link\.href = group\.repository\.url/, 'linked to the repository');
   assert.match(page, /list\(group\.skills\)/, 'its skills under it');
+});
+
+/**
+ * The page in jsdom, at `?repo=<repo>`: it scans at once. Its requests go to the test server, or to
+ * `answer` for /api/scan when given; `release` lets a held answer through.
+ */
+function pageAt(t: TestContext, repo: string, answer?: () => Promise<Response>) {
+  return (async () => {
+    const html = await (await fetch(url)).text();
+    const dom = new JSDOM(html, {
+      url: `${url}?repo=${encodeURIComponent(repo)}`,
+      runScripts: 'dangerously',
+      beforeParse(window) {
+        (window as unknown as { fetch: typeof fetch }).fetch = (path) => {
+          const asked = new URL(String(path), url);
+          return asked.pathname === '/api/scan' && answer ? answer() : fetch(asked);
+        };
+      },
+    });
+    t.after(() => dom.window.close());
+    const { document } = dom.window;
+    const text = (selector: string) => document.querySelector(selector)?.textContent ?? null;
+    return {
+      document,
+      card: () => {
+        const card = document.getElementById('organization')!;
+        const progress = document.getElementById('org-progress')!;
+        return {
+          hidden: card.hidden,
+          title: text('#organization h2'),
+          name: text('#org-name'),
+          count: text('#org-count'),
+          progress: { running: progress.classList.contains('running'), value: progress.getAttribute('aria-valuenow') },
+          label: text('#org-label'),
+          top: [...document.querySelectorAll('#org-top li')].map((item) => [
+            item.querySelector('a')!.textContent,
+            item.querySelector('a')!.getAttribute('href'),
+            item.querySelector('.skills')!.textContent,
+          ]),
+          more: text('#org-more'),
+        };
+      },
+      /** Until the scan has answered: the field's button is enabled again. */
+      scanned: async () => {
+        const button = document.getElementById('scan') as HTMLButtonElement;
+        for (let i = 0; i < 200 && (button.disabled || /^Scanning /.test(text('#status') ?? '')); i++) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+      },
+    };
+  })();
+}
+
+/** An organization's answer with these repositories, by name and skill count. */
+function organizationAnswer(owner: string, total: number, repositories: [string, number][]): OrganizationAnswer {
+  return {
+    organization: { id: owner, url: `https://github.com/${owner}`, repositories: total },
+    repositories: repositories.map(([name, skills]) => ({
+      repository: { id: `${owner}/${name}`, url: `https://github.com/${owner}/${name}`, commit: EXAMPLE_COMMIT },
+      skills: Array.from({ length: skills }, (_, i) => ({
+        id: `${owner}/${name}:skills/s${i}/SKILL.md`,
+        name: `s${i}`,
+        description: '',
+        summary: '',
+        path: `skills/s${i}/SKILL.md`,
+        link: `https://github.com/${owner}/${name}/blob/${EXAMPLE_COMMIT}/skills/s${i}/SKILL.md`,
+        copies: [],
+        text: '',
+      })),
+    })),
+    warnings: [],
+  };
+}
+
+test("the organization's card: its link, its repositories, the bar full, the top repositories by skill count", async (t) => {
+  const page = await pageAt(t, 'https://github.com/octo-org');
+  await page.scanned();
+  assert.deepEqual(page.card(), {
+    hidden: false,
+    title: 'Scan the organization',
+    name: 'github.com/octo-org',
+    count: '101 repositories',
+    progress: { running: false, value: '100' },
+    label: '3 with skills',
+    // Most skills first; a tie by name, ignoring case. The name without the owner, linked.
+    top: [
+      ['agents', 'https://github.com/octo-org/agents', '2 skills'],
+      ['Docs', 'https://github.com/octo-org/Docs', '1 skill'],
+      ['tools', 'https://github.com/octo-org/tools', '1 skill'],
+    ],
+    more: '',
+  });
+  // The grouped list stays under the card, as before.
+  assert.equal(page.document.querySelectorAll('#skills li.group').length, 3);
+  assert.equal(page.document.getElementById('status')!.textContent, 'octo-org · 4 skills in 3 of 101 repositories');
+});
+
+test("the organization's card: while scanning the bar moves; then the top 3, and +N more", async (t) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const answer = organizationAnswer('JetBrains', 865, [
+    ['kotlin', 6],
+    ['intellij-community', 38],
+    ['koog', 2],
+    ['MPS', 41],
+    ['aspire-plugin', 3],
+  ]);
+  const page = await pageAt(t, 'github.com/JetBrains', async () => (await held, Response.json(answer)));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(page.card(), {
+    hidden: false,
+    title: 'Scan the organization',
+    name: 'github.com/JetBrains',
+    count: '…',
+    progress: { running: true, value: null },
+    label: 'Scanning…',
+    top: [],
+    more: '',
+  });
+  release();
+  await page.scanned();
+  const card = page.card();
+  assert.equal(card.count, '865 repositories');
+  assert.deepEqual(card.progress, { running: false, value: '100' });
+  assert.equal(card.label, '5 with skills, among them');
+  assert.deepEqual(
+    card.top.map(([name, , skills]) => `${name} ${skills}`),
+    ['MPS 41 skills', 'intellij-community 38 skills', 'kotlin 6 skills'],
+  );
+  assert.equal(card.more, '+2 more');
+});
+
+test("the organization's card: no repository with skills; hidden for a repository and on a failure", async (t) => {
+  const none = await pageAt(t, 'github.com/empty-org', async () => Response.json(organizationAnswer('empty-org', 4, [])));
+  await none.scanned();
+  assert.deepEqual(
+    (({ hidden, count, label, top, more }) => ({ hidden, count, label, top, more }))(none.card()),
+    { hidden: false, count: '4 repositories', label: 'No repository with skills', top: [], more: '' },
+  );
+  const repository = await pageAt(t, FIXTURE);
+  await repository.scanned();
+  assert.equal(repository.card().hidden, true, 'a repository has no organization card');
+  const unknown = await pageAt(t, 'https://github.com/no-such-org');
+  await unknown.scanned();
+  assert.equal(unknown.card().hidden, true, 'an unknown organization: only its message');
+  assert.equal(unknown.document.getElementById('status')!.textContent, 'Organization not found: https://github.com/no-such-org');
 });
 
 test('an unknown organization → 400 with a clear message', async () => {
