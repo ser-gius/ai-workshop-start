@@ -1,5 +1,6 @@
 import { AtlasError, EmptyRepositoryError, UnavailableError } from './errors.ts';
 import { SKILL_ROOTS } from './find.ts';
+import { latest, utc } from './model.ts';
 import type { OrganizationSource, Source } from './scan.ts';
 
 /** The part of `fetch` the core uses, so tests and the browser can pass their own. */
@@ -133,7 +134,20 @@ function source(github: Client, id: string, sha: string, paths: string[], warnin
     paths,
     warnings,
     read: (path) => github.raw(`${RAW}/${id}/${sha}/${encodePath(path)}`),
+    updated: async (folders) => latest(await Promise.all(folders.map((folder) => lastCommit(github, id, sha, folder)))),
   };
+}
+
+/** A commit as GitHub lists it in a history: only its committer's date is read. */
+type ListedCommit = { commit?: { committer?: { date?: string } } };
+
+/**
+ * The time of the latest commit, up to `sha`, that touched the folder: the first of its history,
+ * one commit a page. Undefined when there is none.
+ */
+async function lastCommit(github: Client, id: string, sha: string, folder: string): Promise<string | undefined> {
+  const history = await github.json<ListedCommit[]>(`${API}/repos/${id}/commits?sha=${sha}&path=${encodePath(folder)}&per_page=1`);
+  return Array.isArray(history) ? utc(history[0]?.commit?.committer?.date) : undefined;
 }
 
 /** One of the user's repositories, as the web view suggests it. */
@@ -344,7 +358,7 @@ function retryAfter(response: Response, text: string): number | undefined {
 }
 
 /** Runs at most `size` tasks at a time; the rest wait their turn. */
-function limiter(size: number) {
+export function limiter(size: number) {
   let running = 0;
   const waiting: (() => void)[] = [];
   return async <T>(task: () => Promise<T>): Promise<T> => {

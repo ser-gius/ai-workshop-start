@@ -9,9 +9,12 @@ Prints the result **at once**; *nothing is stored*.
 JetBrains/kotlin · 6 skills
 build-tools-bump-gradle-api — Bumps the Gradle API…
   https://github.com/JetBrains/kotlin/blob/<commit>/…
+  updated 2026-11-20
 ```
 - Sorted by **name**; the description's *first sentence*
 - `also in <paths>` for copies; warnings go to *stderr*
+- `updated <day>`, last: the day the skill last changed, `YYYY-MM-DD` in UTC
+  ([analysis](analysis.md#when-a-skill-last-changed)); no line when it has no date
 ## An organization
 ```
 JetBrains · 202 skills in 34 of 693 repositories

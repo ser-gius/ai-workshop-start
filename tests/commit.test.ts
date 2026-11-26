@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseGitHubUrl } from '../src/core/github.ts';
 import type { Recording } from '../src/core/replay.ts';
-import { atlasOn } from './helpers.ts';
+import { atlasOn, history } from './helpers.ts';
 
 const COMMIT = '1cbf7f783dbc5c74c8e5231d31f61b02829143de';
 const API = 'https://api.github.com/repos/JetBrains/MPS';
@@ -42,6 +42,9 @@ const PINNED: Recording = {
     status: 200,
     body: '---\nname: mps-tests\ndescription: Write MPS tests. Use for every test.\n---\n',
   },
+  // Each folder's history up to that commit, not the default branch's.
+  ...history('JetBrains/MPS', '.agents/skills/mps-tests', '2026-04-14T17:22:41Z', COMMIT),
+  ...history('JetBrains/MPS', 'plugins/mcp-tools/skills/mps-tests', '2026-03-01T10:00:00Z', COMMIT),
 };
 
 test('a GitHub URL with /tree/<commit> pins the commit', () => {
@@ -61,6 +64,7 @@ test('scan at a fixed commit: the whole tree, a directory at a time when large; 
       'mps-tests — Write MPS tests.',
       `  https://github.com/JetBrains/MPS/blob/${COMMIT}/.agents/skills/mps-tests/SKILL.md`,
       '  also in plugins/mcp-tools/skills/mps-tests/SKILL.md',
+      '  updated 2026-04-14',
     ].join('\n'),
   );
 });

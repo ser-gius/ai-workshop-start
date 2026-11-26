@@ -12,7 +12,7 @@ import { openGitHub } from '../src/core/github.ts';
 import { parseSkill } from '../src/core/parse.ts';
 import { scan } from '../src/core/scan.ts';
 import { replay } from '../src/core/replay.ts';
-import { atlas, CLI, EXAMPLE_COMMIT, FIXTURE } from './helpers.ts';
+import { atlas, CLI, EXAMPLE_COMMIT, FIXTURE, history } from './helpers.ts';
 
 const fixture = await atlas(['scan', FIXTURE]);
 const example = await atlas(['scan', 'github.com/JetBrains/example']);
@@ -35,6 +35,7 @@ test('scan prints the repository, then each skill with its first sentence and pi
       'JetBrains/example · 1 skill',
       'commits — Write commit messages the way this repository does.',
       `  https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`,
+      '  updated 2026-11-20',
     ].join('\n'),
   );
 });
@@ -42,8 +43,16 @@ test('scan prints the repository, then each skill with its first sentence and pi
 test('./fixture: every skill, sorted by name, linked to its file, with a warning for the malformed one', () => {
   const root = pathToFileURL(FIXTURE).href;
   assert.equal(fixture.code, 0);
+  // The day each skill last changed comes from this checkout's history (tests/updated.test.ts has fixed ones):
+  // here, only that it is a day, last in its skill.
+  const lines = fixture.stdout.split('\n');
+  for (const [i, line] of lines.entries()) {
+    if (!line.startsWith('  updated ')) continue;
+    assert.match(line, /^  updated \d{4}-\d{2}-\d{2}$/);
+    assert.ok(i + 1 === lines.length || !lines[i + 1].startsWith('  '), 'the last line of its skill');
+  }
   assert.equal(
-    fixture.stdout,
+    lines.filter((line) => !line.startsWith('  updated ')).join('\n'),
     [
       'fixture · 7 skills',
       'aspect-generator — Generate a language aspect.',
@@ -113,6 +122,7 @@ test('a private repository: with GITHUB_TOKEN, its SKILL.md files are read with 
       status: 200,
       body: { total_count: 1, items: [{ path: '.claude/skills/secret/SKILL.md' }] },
     },
+    ...history('JetBrains/private', '.claude/skills/secret', '2026-05-04T03:02:01Z', commit),
   });
   const raw = `https://raw.githubusercontent.com/JetBrains/private/${commit}/.claude/skills/secret/SKILL.md`;
   const github = (token: string) =>
@@ -126,5 +136,5 @@ test('a private repository: with GITHUB_TOKEN, its SKILL.md files are read with 
     });
   const result = await scan(await github('test'));
   assert.deepEqual(result.warnings, []);
-  assert.deepEqual(result.skills.map((skill) => [skill.name, skill.description]), [['secret', 'Private.']]);
+  assert.deepEqual(result.skills.map((skill) => [skill.name, skill.description, skill.updated]), [['secret', 'Private.', '2026-05-04T03:02:01Z']]);
 });

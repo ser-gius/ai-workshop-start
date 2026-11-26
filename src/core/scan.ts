@@ -1,6 +1,6 @@
 import { AtlasError, EmptyRepositoryError, UnavailableError } from './errors.ts';
 import { findSkills, type SkillFile } from './find.ts';
-import { compareText, sortSkills, type Organization, type Repository, type Skill } from './model.ts';
+import { compareText, skillFolder, sortSkills, type Organization, type Repository, type Skill } from './model.ts';
 import { parseSkill } from './parse.ts';
 
 /** A repository to scan: its files, and how to read them. */
@@ -12,6 +12,11 @@ export type Source = {
   warnings: string[];
   /** The file's bytes, or undefined if it is not there. */
   read(path: string): Promise<Uint8Array | undefined>;
+  /**
+   * When a skill last changed: the time of the latest commit, up to the scanned one, that touched one of
+   * these folders, ISO 8601 in UTC; undefined when none did, or the source has no history.
+   */
+  updated?(folders: string[]): Promise<string | undefined>;
 };
 
 export type ScanResult = { repository: Repository; skills: Skill[]; warnings: string[] };
@@ -24,13 +29,14 @@ export async function scan(source: Source): Promise<ScanResult> {
   return {
     repository: source.repository,
     skills: sortSkills(results.flatMap((result) => (result.skill ? [result.skill] : []))),
-    warnings: [...source.warnings, ...results.flatMap((result) => (result.warning ? [result.warning] : []))],
+    warnings: [...source.warnings, ...results.flatMap((result) => result.warnings)],
   };
 }
 
-async function readSkill(source: Source, file: SkillFile): Promise<{ skill?: Skill; warning?: string }> {
-  const bytes = await source.read(file.path);
-  if (!bytes) return { warning: `${file.path}: listed, but not found at the scanned commit; skipped` };
+async function readSkill(source: Source, file: SkillFile): Promise<{ skill?: Skill; warnings: string[] }> {
+  // Its folder and its copies': the skill's files, wherever an agent reads them.
+  const [bytes, last] = await Promise.all([source.read(file.path), lastUpdate(source, [file.path, ...file.copies].map(skillFolder))]);
+  if (!bytes) return { warnings: [`${file.path}: listed, but not found at the scanned commit; skipped`] };
   const text = new TextDecoder().decode(bytes);
   const parsed = parseSkill(text);
   const skill: Skill = {
@@ -42,8 +48,24 @@ async function readSkill(source: Source, file: SkillFile): Promise<{ skill?: Ski
     commit: source.repository.commit,
     copies: file.copies,
     text,
+    ...(last.updated ? { updated: last.updated } : {}),
   };
-  return { skill, warning: parsed.warning && `${file.path}: ${parsed.warning}` };
+  const warnings = [parsed.warning, last.warning].filter((warning) => warning !== undefined);
+  return { skill, warnings: warnings.map((warning) => `${file.path}: ${warning}`) };
+}
+
+/**
+ * When the skill last changed. A source that cannot say is a warning, and the skill has no date;
+ * one that turns the scan away stops it, as anywhere else.
+ */
+async function lastUpdate(source: Source, folders: string[]): Promise<{ updated?: string; warning?: string }> {
+  if (!source.updated) return {};
+  try {
+    return { updated: await source.updated(folders) };
+  } catch (error) {
+    if (!(error instanceof AtlasError) || error instanceof UnavailableError) throw error;
+    return { warning: `last update unknown: ${error.message}` };
+  }
 }
 
 /** An organization to scan: its repositories that may have skills, each opened when it is scanned. */

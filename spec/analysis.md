@@ -2,10 +2,10 @@
 ## Input
 A **GitHub repository** URL, a **GitHub organization** URL, or a local directory
 ## Output
-Every `SKILL.md`: **name**, **description**, **link**; for an organization, *grouped by repository*
+Every `SKILL.md`: **name**, **description**, **link**, **last updated**; for an organization, *grouped by repository*
 ## Architecture
 Core: fetch → find → parse. CLI: a *thin client*.
-Skill: id = `repo:path`, name, description, commit
+Skill: id = `repo:path`, name, description, commit, updated
 ## Details
 - **GitHub API**, no clone; *under 5 s* for intellij-community
 - The name: front matter, else the directory
@@ -22,6 +22,18 @@ Skill: id = `repo:path`, name, description, commit
 - `.` or `..` as the owner or the name → `Repository not found: <URL>`, nothing asked of GitHub
 - A **private** repository, with a `GITHUB_TOKEN` that can read it: listed *and read* with the token
 - An empty repository (no commit yet) → `Repository is empty: <URL>`, exit code 1
+
+## When a skill last changed
+**Updated**: the time of the *latest commit* that touched the skill's files, up to the scanned commit;
+its *committer* date, in UTC (`2026-03-01T01:00:00+02:00` → `2026-02-28T23:00:00Z`).
+- Its files: its **folder** (`<root>/<name>/`, everything in it), and *each copy's*: the latest of them
+- GitHub: a folder's history, one commit a page, `/repos/<owner>/<repo>/commits?sha=<commit>&path=<folder>&per_page=1`;
+  one request per folder
+- A local directory: `git log` in the git repository it is in (it may be below the root); changes not committed
+  yet do not count
+- No commit touched it (a local skill not committed yet), or a directory outside git → *no date*, no warning
+- A folder's history that fails → a *warning* (`<path>: last update unknown: <message>`), the skill without a date;
+  the rate limit, a rejected token, GitHub unreachable stop the scan, as anywhere else
 
 ## An organization
 `github.com/<owner>`: every repository of an organization, or of a user's account, at its default branch.
@@ -74,4 +86,10 @@ Each is checked end to end on the real repository at a fixed commit (`tests/e2e`
   ```
   JetBrains/koog · weather-retrieval
     integration-tests/src/jvmTest/resources/skills/weather-retrieval/SKILL.md
+  ```
+- **A copy changed last**: the skill's date is its copy's, not its linked folder's.
+  ```
+  JetBrains/MPS · actions · updated 2026-05-21
+    .agents/skills/actions/   2026-04-14
+    .claude/skills/actions/   2026-05-21
   ```
