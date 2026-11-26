@@ -50,11 +50,27 @@ ffmpeg -v error -i demo.mp4 -vf fps=1/5,scale=640:-1 /tmp/f%02d.png && ffmpeg -v
 
 ## Attach it to a pull request
 
-GitHub has no API for PR attachments, so `gh` cannot upload a video. Two ways to do it:
-- Write the MP4 under `$AIR_ARTIFACTS_DIR`, then link the session artifact in the PR description, or
-- Ask the user to drag the MP4 into the PR description on github.com (10 MB at most on the free plan).
+A demo is only done once a reviewer can see it in the PR itself. A link to a session artifact, or
+asking the user to drag the file in, does not count. GitHub has no API for PR attachments, so
+`attach.sh` hosts the files on the orphan branch `demo-assets` and posts them in the PR description:
 
-Do not commit the video to the repository.
+```bash
+# Optional: stills of the key moments, e.g. one frame at 8 s
+ffmpeg -v error -y -ss 8 -i "$AIR_ARTIFACTS_DIR/demo.mp4" -frames:v 1 "$AIR_ARTIFACTS_DIR/demo-8s.png"
+.claude/skills/record-demo/attach.sh <pr-number> "$AIR_ARTIFACTS_DIR/demo.mp4" "$AIR_ARTIFACTS_DIR/demo-8s.png"
+```
+
+- Each MP4 becomes an inline GIF preview (8 fps, 800 px wide), followed by a link to the MP4 itself.
+  PNG, JPG and GIF files are shown inline as they are.
+- Files go under `pr-<n>/` on `demo-assets` through a temporary worktree. The current checkout and
+  the PR branch are left alone.
+- The description gets a `### Demo` section between `<!-- demo:start -->` and `<!-- demo:end -->`.
+  Running it again replaces that section and leaves the rest of the description as it was. Links
+  point at the `demo-assets` commit, so a later run does not break an earlier one.
+- Then open the PR and check that the GIF renders. Mention the demo in the description's text too,
+  without the old "drag it in" note.
+
+Keep the MP4 under `$AIR_ARTIFACTS_DIR` as well. Never commit demo files to the PR branch or `main`.
 
 ## Troubleshooting
 
