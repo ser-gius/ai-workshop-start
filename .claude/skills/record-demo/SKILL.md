@@ -50,6 +50,12 @@ ffmpeg -v error -i demo.mp4 -vf fps=1/5,scale=640:-1 /tmp/f%02d.png && ffmpeg -v
 
 ## Attach it to a pull request
 
+**CI does this already** for every pull request from this repository: once CI finishes, the `Demo`
+workflow ([.github/workflows/demo.yml](../../../.github/workflows/demo.yml)) takes the videos the
+visual tests recorded (one per case, on recorded data) and posts them with `attach.sh`. A PR opened
+before that workflow existed gets its demo when you rerun its CI (`gh run rerun <run id>`). Use the
+steps below for a recording CI cannot make: live data, or a case that isn't a visual test yet.
+
 A demo is only done once a reviewer can see it in the PR itself. A link to a session artifact, or
 asking the user to drag the file in, does not count. GitHub has no API for PR attachments, so
 `attach.sh` hosts the files on the orphan branch `demo-assets` and posts them in the PR description:

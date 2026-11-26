@@ -1,0 +1,65 @@
+# Posts the demo in the pull request: once CI is done, the videos its visual job recorded
+# (tests/visual, one per demo case, on recorded data) become GIF previews in the PR description, with
+# links to the MP4s. The files go to the orphan branch `demo-assets`, through
+# .claude/skills/record-demo/attach.sh. Never for main or a fork. CI's own run is not slowed down.
+# For a PR that is already open, rerun its CI: gh run rerun <CI run id>.
+name: Demo
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+permissions:
+  contents: write # the demo-assets branch
+  pull-requests: write # the PR description
+  actions: read # CI's artifact
+concurrency:
+  group: demo-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+jobs:
+  demo:
+    if: >-
+      github.event.workflow_run.conclusion != 'cancelled' &&
+      github.event.workflow_run.head_branch != 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN: ${{ github.event.workflow_run.id }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+    steps:
+      # The default branch's attach.sh, never the PR's: this job's token can write.
+      - uses: actions/checkout@v7
+      - name: The pull request
+        id: pr
+        run: |
+          pr=$(gh pr list --head "$BRANCH" --state open --json number,headRefOid \
+            -q ".[] | select(.headRefOid == \"$SHA\") | .number" | head -1)
+          if [ -z "$pr" ]; then echo "No open PR at $SHA (a newer push, or none): nothing to post"; exit 0; fi
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+      - name: The videos
+        if: steps.pr.outputs.number
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+          gh run download "$RUN" -n visual-tests -D "$RUNNER_TEMP/visual"
+          mkdir -p "$RUNNER_TEMP/demo"
+          # test-results/demo-<case>-<title…>/video.webm, in the spec's order; the fonts check is no case.
+          for case in fixture scan filter org link; do
+            v=$(ls "$RUNNER_TEMP"/visual/test-results/demo-"$case"-*/video.webm 2>/dev/null | head -1)
+            [ -n "$v" ] || { echo "No video for $case"; continue; }
+            ffmpeg -v error -y -i "$v" -c:v libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart "$RUNNER_TEMP/demo/$case.mp4"
+            echo "$RUNNER_TEMP/demo/$case.mp4" >> "$RUNNER_TEMP/demo/list"
+          done
+          ls -l "$RUNNER_TEMP/demo"
+      - name: Post them in the PR
+        if: steps.pr.outputs.number
+        run: |
+          mapfile -t files < <(cat "$RUNNER_TEMP/demo/list" 2>/dev/null)
+          [ ${#files[@]} -gt 0 ] || { echo "No videos: nothing to post"; exit 0; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          .claude/skills/record-demo/attach.sh \
+            --note "The visual tests' recordings from [CI]($RUN_URL) at ${SHA:0:7}, on recorded GitHub data (\`tests/visual\`)." \
+            "${{ steps.pr.outputs.number }}" "${files[@]}"
