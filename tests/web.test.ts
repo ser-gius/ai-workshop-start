@@ -831,3 +831,10 @@ test('a sentence cut at two lines folds: the skills are on screen when it is mea
   assert.ok(item.querySelector('details.description'), 'one sentence, cut at two lines: a fold');
   assert.equal(item.querySelector('details.description .whole')!.textContent, sentence);
 });
+
+test('no skills: the SKILL.md view says how to read one', async (t) => {
+  const page = await pageAt(t, 'github.com/empty-org', async () => Response.json(organizationAnswer('empty-org', 4, [])));
+  await page.scanned();
+  assert.equal(page.document.querySelector('#skills li[role="option"]'), null);
+  assert.equal(page.document.querySelector('#skill .placeholder')?.textContent, 'Select a skill to read its SKILL.md.');
+});
