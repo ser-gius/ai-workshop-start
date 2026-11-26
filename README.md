@@ -17,8 +17,10 @@ build-tools-bump-gradle-api — Bumps the Gradle API version that Kotlin Gradle 
 link (or a local directory), its skills, and each one's SKILL.md.
 
 `github.com/<owner>/<repo>/tree/<commit>` scans the repository at that commit. Set `GITHUB_TOKEN` for a
-higher GitHub rate limit. `npm test` runs the tests; `npm run test:e2e` runs them on real repositories.
+higher GitHub rate limit. `npm test` runs the tests; `npm run test:e2e` runs them on real repositories;
+`npm run test:visual:docker` runs the demo as screenshot tests, on recorded GitHub answers (Docker).
 
 - [spec/](spec/): what it does. [AGENTS.md](AGENTS.md): the definition of done.
 - [fixture/](fixture/README.md): a small repository for the tests.
+- [tests/visual/](tests/visual/README.md): the demo as visual tests, their baselines made on CI.
 - [qa/](qa/README.md): manual test scripts, each case with its steps and what a tester should see.

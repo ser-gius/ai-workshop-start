@@ -31,6 +31,9 @@ scan spends about 15 s on *Scanning…*. Without `GITHUB_TOKEN` it can hit the r
 
 ## A new case
 
+The visual tests ([tests/visual/demo.spec.ts](../../../tests/visual/demo.spec.ts)) play these same cases on
+recorded data and compare screenshots of their key moments: a new case, or a changed one, belongs there too.
+
 Add an entry to `CASES` in `record.mjs`: `about`, plus `run(p, h)`, where `p` is the Playwright page.
 The helpers in `h` are `scan(link)`, `skills()` (waits for a visible skill), `filter(words, { append })`,
 `clearFilter()`, `scroll(dy, ms)`, `pause(ms)` and `url`. Selectors come from the page in `src/web.ts`
