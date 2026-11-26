@@ -25,6 +25,11 @@ export function createWebServer({ open }: WebOptions): Server {
       response.writeHead(status, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-store' });
       response.end(body);
     };
+    // Only this machine's own names: a page that rebinds its domain to 127.0.0.1 sends its own Host.
+    const port = request.socket.localPort;
+    if (request.headers.host !== `127.0.0.1:${port}` && request.headers.host !== `localhost:${port}`) {
+      return send(403, 'text/plain', 'Forbidden: open the page at 127.0.0.1 or localhost');
+    }
     if (request.method !== 'GET') return send(405, 'text/plain', 'Method not allowed');
     if (url.pathname === '/') return send(200, 'text/html', PAGE);
     if (url.pathname !== '/api/scan') return send(404, 'text/plain', 'Not found');

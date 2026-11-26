@@ -2,9 +2,11 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { request } from 'node:http';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
+import { createBrowserBackend } from '../src/browser.ts';
 import { serve, type ScanAnswer } from '../src/web.ts';
 import { CLI, EXAMPLE_COMMIT, FIXTURE, open } from './helpers.ts';
 
@@ -78,10 +80,11 @@ test('anything else → 404; only GET', async () => {
   assert.equal((await fetch(url, { method: 'POST' })).status, 405);
 });
 
-test('./skill-atlas serve prints its local URL and answers there', async (t) => {
-  const child = spawn(process.execPath, [CLI, 'serve', '--port', '0'], { stdio: ['ignore', 'pipe', 'pipe'] });
+/** Starts `./skill-atlas serve <args>`; resolves with the first line it prints. */
+async function startServe(t: { after(fn: () => void): void }, args: string[]): Promise<string> {
+  const child = spawn(process.execPath, [CLI, 'serve', ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => child.kill());
-  const printed = await new Promise<string>((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     let out = '';
     child.stdout.on('data', (chunk) => {
       out += chunk;
@@ -89,10 +92,44 @@ test('./skill-atlas serve prints its local URL and answers there', async (t) => 
     });
     child.once('exit', (code) => reject(new Error(`exited with ${code}`)));
   });
+}
+
+test('./skill-atlas serve prints its local URL and answers there', async (t) => {
+  const printed = await startServe(t, ['--port', '0']);
   const match = /^Skill Atlas at (http:\/\/127\.0\.0\.1:\d+\/)\n$/.exec(printed);
   assert.ok(match, printed);
   const answer = (await (await fetch(`${match[1]}api/scan?repo=${encodeURIComponent(FIXTURE)}`)).json()) as ScanAnswer;
   assert.equal(answer.skills.length, 7);
+});
+
+test('./skill-atlas serve listens on port 4173 by default', async (t) => {
+  assert.equal(await startServe(t, []), 'Skill Atlas at http://127.0.0.1:4173/\n');
+});
+
+test('a foreign Host → 403: no DNS rebinding; localhost is this machine', async () => {
+  const { port } = new URL(url);
+  const status = (host: string) =>
+    new Promise<number>((resolve, reject) => {
+      const path = `/api/scan?repo=${encodeURIComponent(FIXTURE)}`;
+      request({ host: '127.0.0.1', port, path, headers: { Host: host } }, (response) => {
+        response.resume();
+        resolve(response.statusCode ?? 0);
+      })
+        .on('error', reject)
+        .end();
+    });
+  assert.equal(await status(`attacker.example:${port}`), 403);
+  assert.equal(await status('127.0.0.1'), 403, 'without the port');
+  assert.equal(await status(`localhost:${port}`), 200);
+  assert.equal(await status(`127.0.0.1:${port}`), 200);
+});
+
+test('serve is only in the Node CLI: its help lists it, the browser terminal does not', async () => {
+  const help = spawnSync(process.execPath, [CLI, 'help'], { encoding: 'utf8' });
+  assert.match(help.stdout, /^  serve \[--port <number>\] +a local web view/m);
+  const browser = createBrowserBackend({ fetch: () => Promise.reject(new Error('offline')) });
+  assert.doesNotMatch(await browser.run('skill-atlas help'), /serve/);
+  assert.doesNotMatch(await browser.run('skill-atlas serve'), /^  serve/m);
 });
 
 test('./skill-atlas serve with a wrong argument → usage, exit code 1', () => {

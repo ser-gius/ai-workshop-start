@@ -27,7 +27,12 @@ if (args[0] === 'serve') {
     }
   }
 } else {
-  process.exitCode = await run(args, { open, print: (text) => console.log(text), error: (text) => console.error(text) });
+  process.exitCode = await run(args, {
+    open,
+    print: (text) => console.log(text),
+    error: (text) => console.error(text),
+    commands: ['serve [--port <number>]         a local web view: a repository link, its skills, their SKILL.md'],
+  });
 }
 
 /** `[--port <n>]`, 4173 by default; undefined when the arguments are wrong. */

@@ -1,6 +1,8 @@
 # Web view
 `./skill-atlas serve [--port <number>]` — a **local** page, on `127.0.0.1`, port *4173* by default
 Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
+- Only in the Node CLI: the browser terminal's `help` does not list it
+- A request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` → 403 (no DNS rebinding)
 ## Page
 - A **field** for a repository link: a GitHub URL, or a local directory
 - The repository and its skill count, then **every skill**: name and description, sorted by name
