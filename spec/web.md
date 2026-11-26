@@ -25,6 +25,26 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
     ignoring case: the name without the owner, in monospace, linked, and `N skills`; then `+<n> more`
     when there are more. With 3 or fewer: `<n> with skills`, no `+<n> more`; with none: `No repository with skills`
   - Hidden for a repository or a local directory, and on a failure (its message shows instead)
+## Filter
+A **filter field** above the skill list narrows it *as you type*, no new scan
+- Its **words** (split on spaces) are matched against a skill's **name** and whole **description**:
+  every word, *in any order*, as part of a word, case-insensitive; one in the name, another in the description is a match
+  `use before` → `code-style`, `reviews`, `run-tests`; `generator plugin` → `aspect-generator`
+- Empty, or only spaces → every skill
+- The count shows the matches: `fixture · 3 of 7 skills`; and in the filter field, a **pill**: `3 of 7` while
+  it has words, else `7 skills`
+- A match is **highlighted**, in the name and in the description: every occurrence of every word,
+  case-insensitive (`test` highlights `teSt` and `Test`)
+- While a word is in the description, the skill shows a **snippet** of it instead, on one line: from the start of
+  a word at most 30 characters before the first match, to at most 80 after it, `…` where it is cut;
+  a match in the name only → the description as without a filter
+- No match → `No skills match "<filter>"`, no selected skill
+- The selected skill stays while it matches; else the first match is selected
+- A new scan keeps the filter
+- An organization: its skills are filtered *across its repositories*; a repository's heading shows only over a match;
+  filtered, the count is `<owner> · 3 of 552 skills`; unfiltered, the organization's as above
+- `?filter=<words>`, with `?repo=`: the filtered view has a link of its own; typing updates the link,
+  an empty filter drops the parameter
 ## API
 `GET /api/scan?repo=<link>` → JSON `{ repository, skills, warnings }`; a skill has `name`,
 `description` (on one line), `summary` (its first sentence), `path`, `link`, `copies` and `text`, the SKILL.md

@@ -10,7 +10,7 @@ import { JSDOM } from 'jsdom';
 import { createBrowserBackend } from '../src/browser.ts';
 import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
-import { serve, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
+import { filterCount, filterSnippet, highlightRanges, matchesFilter, serve, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
 import { CLI, EXAMPLE_COMMIT, FIXTURE, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
 
 // The token goes to GitHub with every /user/repos request.
@@ -69,6 +69,268 @@ test('descriptions are trimmed to their first sentence and foldable to the whole
   assert.match(page, /summary::before \{ content: '▸'; \}/, 'a marker shows that it unfolds');
   assert.match(page, /\.whole::before \{ content: '▾ '; \}/, 'and that it folds');
   assert.match(page, /event\.stopPropagation\(\)/, 'folding does not select the skill');
+});
+
+/** The fixture's skills that the filter keeps, by name. */
+async function filtered(filter: string): Promise<string[]> {
+  const { body } = await scan(FIXTURE);
+  return body.skills.filter((skill) => matchesFilter(skill, filter)).map((skill) => skill.name);
+}
+
+test('the filter: every word, in any order, in the name or the description', async () => {
+  assert.deepEqual(await filtered('use before'), ['code-style', 'reviews', 'run-tests']);
+  assert.deepEqual(await filtered('before use'), ['code-style', 'reviews', 'run-tests'], 'in any order');
+  assert.deepEqual(await filtered('this repository'), ['commits', 'lint-checks', 'reviews']);
+  assert.deepEqual(await filtered('checklist'), ['release-checklist'], 'in the name only');
+  assert.deepEqual(await filtered('kotlin'), ['code-style'], 'in the description only');
+  assert.deepEqual(await filtered('generator plugin'), ['aspect-generator'], 'one in the name, another in the description');
+  assert.deepEqual(await filtered('generator merging'), [], 'every word must match');
+});
+
+test('the filter: part of a word, case-insensitive', async () => {
+  assert.deepEqual(await filtered('chec'), ['lint-checks', 'release-checklist'], 'as you type');
+  assert.deepEqual(await filtered('REVIEW'), ['reviews']);
+  assert.deepEqual(await filtered('Use Before'), ['code-style', 'reviews', 'run-tests']);
+});
+
+test('the filter: empty or only spaces → every skill; no match → none', async () => {
+  const every = ['aspect-generator', 'code-style', 'commits', 'lint-checks', 'release-checklist', 'reviews', 'run-tests'];
+  assert.deepEqual(await filtered(''), every);
+  assert.deepEqual(await filtered('   '), every);
+  assert.deepEqual(await filtered('  use   before  '), ['code-style', 'reviews', 'run-tests'], 'extra spaces');
+  assert.deepEqual(await filtered('no-such-word'), []);
+});
+
+/** The served page, its own script running in a DOM, at `?<query>`, asking this server; closed after the test. */
+async function openPage(t: { after(fn: () => void): void }, query: string) {
+  const html = await (await fetch(url)).text();
+  const scans: string[] = [];
+  const dom = new JSDOM(html, {
+    url: `${url}?${query}`,
+    runScripts: 'dangerously',
+    beforeParse(window) {
+      (window as unknown as { fetch: typeof fetch }).fetch = (path) => {
+        const asked = new URL(String(path), url);
+        if (asked.pathname === '/api/scan') scans.push(asked.searchParams.get('repo') ?? '');
+        return fetch(asked);
+      };
+    },
+  });
+  t.after(() => dom.window.close());
+  const { document } = dom.window;
+  const $ = (id: string) => document.getElementById(id) as HTMLElement & { value: string; disabled: boolean };
+  const page = {
+    scans,
+    status: () => $('status').textContent,
+    /** The skills in the list, by name. */
+    shown: () => [...document.querySelectorAll('#skills li:not([hidden]) .name')].map((name) => name.textContent),
+    /** The selected skill in the list, and the one in the SKILL.md view; null when none. */
+    selected: () => {
+      const inList = document.querySelectorAll('#skills li[aria-selected="true"] .name');
+      assert.ok(inList.length <= 1, 'at most one selected skill');
+      const view = document.querySelector('#skill h2')?.textContent ?? null;
+      assert.equal(inList[0]?.textContent ?? null, view, 'the list and the view agree');
+      return view;
+    },
+    noMatch: () => $('no-match').textContent,
+    /** The pill in the filter field. */
+    count: () => $('count').textContent,
+    /** Each shown skill's name and its snippet, or its folded description, the highlights in [brackets]. */
+    rows: () =>
+      [...document.querySelectorAll('#skills li:not([hidden])')].map((li) => {
+        const text = (node: Element | null) =>
+          node ? [...node.childNodes].map((child) => (child.nodeName === 'MARK' ? `[${child.textContent}]` : child.textContent)).join('') : '';
+        const visible = [...li.querySelectorAll('.description, .snippet')].filter((node) => !(node as HTMLElement).hidden);
+        assert.ok(visible.length <= 1, 'the description or the snippet, not both');
+        return [text(li.querySelector('.name')), visible[0]?.matches('.snippet') ? text(visible[0]) : text(visible[0]?.querySelector('.clamp') ?? null)];
+      }),
+    filter: () => $('filter').value,
+    /** ?filter= in the link of this view; null when it is not there. */
+    linked: () => new URL(dom.window.location.href).searchParams.get('filter'),
+    linkedRepo: () => new URL(dom.window.location.href).searchParams.get('repo'),
+    type(text: string) {
+      $('filter').value = text;
+      $('filter').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    },
+    select(name: string) {
+      const item = [...document.querySelectorAll('#skills li')].find((li) => li.querySelector('.name')?.textContent === name);
+      assert.ok(item, name);
+      (item as HTMLElement).click();
+    },
+    /** Waits until the scan the page started is answered and rendered. */
+    async scanned() {
+      for (let i = 0; i < 200 && ($('scan').disabled || !/ · /.test(page.status() ?? '')); i++) await new Promise((r) => setTimeout(r, 10));
+      assert.ok(!$('scan').disabled, 'the scan finished');
+    },
+    async scanAgain() {
+      $('scan').click();
+      assert.equal($('scan').disabled, true, 'a new scan started');
+      await page.scanned();
+    },
+  };
+  await page.scanned();
+  return page;
+}
+
+const fixtureQuery = (filter?: string) => new URLSearchParams(filter === undefined ? { repo: FIXTURE } : { repo: FIXTURE, filter }).toString();
+
+test('the page has a filter field, and runs the tested filter', async () => {
+  const page = await (await fetch(url)).text();
+  assert.match(page, /<input id="filter"[^>]*aria-label="Filter skills"/, 'a filter field');
+  for (const tested of [matchesFilter, highlightRanges, filterSnippet, filterCount]) {
+    assert.ok(page.includes(String(tested)), `the page runs the tested ${tested.name}`);
+  }
+});
+
+/** The text with the ranges in [brackets]. */
+const bracketed = (text: string, filter: string) => {
+  let out = '';
+  let at = 0;
+  for (const [start, end] of highlightRanges(text, filter)) {
+    out += text.slice(at, start) + '[' + text.slice(start, end) + ']';
+    at = end;
+  }
+  return out + text.slice(at);
+};
+
+test('the highlight: every occurrence of every word, case-insensitive', () => {
+  assert.equal(bracketed('WhenConcreteStatement: tests, JUnit Test', 'test'), 'WhenConcre[teSt]atement: [test]s, JUnit [Test]');
+  assert.equal(bracketed('mps-tests', 'TEST'), 'mps-[test]s');
+  assert.equal(bracketed('use before every push', 'before use'), '[use] [before] every push', 'every word, in any order');
+  assert.equal(bracketed('checklist', 'check list'), '[checklist]', 'touching matches: one highlight');
+  assert.equal(bracketed('checklist', 'checkl eckli'), '[checkli]st', 'overlapping matches: one highlight');
+  assert.equal(bracketed('aaa', 'aa'), '[aaa]', 'overlapping occurrences of one word');
+  assert.deepEqual(highlightRanges('anything', '   '), [], 'no words: nothing');
+  assert.deepEqual(highlightRanges('anything', 'zzz'), []);
+});
+
+test('the snippet: around the first match, from the start of a word, cut with …', () => {
+  const long =
+    'Generates the typesystem aspect of a language: inference rules, checking rules and the WhenConcreteStatement block, then runs the generated tests against every module of the project.';
+  // The first match, teSt, is 24 characters after the start of 'rules'; 'checking' starts 33 before it.
+  assert.equal(
+    filterSnippet(long, 'test'),
+    '…rules and the WhenConcreteStatement block, then runs the generated tests against every module of the project…',
+  );
+  assert.equal(filterSnippet(long, 'zzz'), null, 'no word in the description');
+  assert.equal(filterSnippet(long, ''), null, 'no words');
+  assert.equal(filterSnippet("Run the project's tests.", 'TESTS'), "Run the project's tests.", 'short: whole, no …');
+  assert.equal(filterSnippet(long, 'generates'), 'Generates the typesystem aspect of a language: inference rules, checking rules and the Wh…', 'at the start: no … before');
+  assert.equal(filterSnippet(long, 'project'), '…against every module of the project.', 'at the end: no … after');
+  assert.equal(filterSnippet('x'.repeat(40) + 'match', 'match'), '…match', 'no word start within reach: the match itself');
+});
+
+test('the count in the filter field: the matches while it has words, else every skill', () => {
+  assert.equal(filterCount(3, 7, 'use before'), '3 of 7');
+  assert.equal(filterCount(0, 7, 'zzz'), '0 of 7');
+  assert.equal(filterCount(7, 7, 'e'), '7 of 7', 'every skill matches: still the matches');
+  assert.equal(filterCount(7, 7, ''), '7 skills');
+  assert.equal(filterCount(7, 7, '   '), '7 skills');
+  assert.equal(filterCount(1, 1, ''), '1 skill');
+});
+
+test('the page without a filter: every skill, the count of all, the first selected', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  assert.equal(page.status(), 'fixture · 7 skills');
+  assert.equal(page.count(), '7 skills');
+  assert.equal(page.rows().flat().join('').split('[').length - 1, 0, 'nothing highlighted');
+  assert.deepEqual(page.shown(), ['aspect-generator', 'code-style', 'commits', 'lint-checks', 'release-checklist', 'reviews', 'run-tests']);
+  assert.equal(page.selected(), 'aspect-generator');
+  assert.equal(page.filter(), '');
+  assert.equal(page.noMatch(), '');
+});
+
+test('?filter= on load: the filtered view, its count of the matches, the first match selected', async (t) => {
+  const page = await openPage(t, fixtureQuery('use before'));
+  assert.equal(page.filter(), 'use before');
+  assert.equal(page.status(), 'fixture · 3 of 7 skills');
+  assert.equal(page.count(), '3 of 7');
+  assert.deepEqual(page.shown(), ['code-style', 'reviews', 'run-tests']);
+  assert.equal(page.selected(), 'code-style');
+  assert.equal(page.linked(), 'use before');
+});
+
+test('the page filters as you type, with no new scan, and the link follows', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  assert.equal(page.scans.length, 1);
+  page.type('chec');
+  assert.deepEqual(page.shown(), ['lint-checks', 'release-checklist']);
+  assert.equal(page.status(), 'fixture · 2 of 7 skills');
+  assert.equal(page.linked(), 'chec', 'typing updates the link');
+  assert.equal(page.linkedRepo(), FIXTURE, 'beside ?repo=');
+  page.type('  generator   plugin ');
+  assert.deepEqual(page.shown(), ['aspect-generator'], 'one word in the name, another in the description');
+  assert.equal(page.status(), 'fixture · 1 of 7 skills');
+  assert.equal(page.linked(), 'generator   plugin', 'the link has the words, without the spaces around them');
+  assert.equal(page.scans.length, 1, 'no new scan');
+});
+
+test('the selected skill stays while it matches; else the first match is selected', async (t) => {
+  const page = await openPage(t, fixtureQuery('use before'));
+  page.select('reviews');
+  assert.equal(page.selected(), 'reviews');
+  page.type('use');
+  assert.equal(page.selected(), 'reviews', 'it still matches: it stays');
+  page.type('kotlin');
+  assert.deepEqual(page.shown(), ['code-style']);
+  assert.equal(page.selected(), 'code-style', 'it no longer matches: the first match');
+});
+
+test('no match: a message with the filter, no selected skill; empty or only spaces → every skill, no ?filter=', async (t) => {
+  const page = await openPage(t, fixtureQuery('use before'));
+  page.type('zzz');
+  assert.deepEqual(page.shown(), []);
+  assert.equal(page.status(), 'fixture · 0 of 7 skills');
+  assert.equal(page.count(), '0 of 7');
+  assert.equal(page.noMatch(), 'No skills match "zzz"');
+  assert.equal(page.selected(), null);
+  assert.equal(page.linked(), 'zzz');
+
+  page.type('   ');
+  assert.equal(page.status(), 'fixture · 7 skills');
+  assert.equal(page.count(), '7 skills');
+  assert.equal(page.shown().length, 7);
+  assert.equal(page.noMatch(), '');
+  assert.equal(page.selected(), 'aspect-generator', 'a match again: the first one');
+  assert.equal(page.linked(), null, 'an empty filter drops the parameter');
+  assert.equal(page.linkedRepo(), FIXTURE);
+});
+
+test('the page highlights the matches in the name and the snippet, case-insensitive', async (t) => {
+  const page = await openPage(t, fixtureQuery('CHEC'));
+  assert.deepEqual(page.rows(), [
+    ['lint-[chec]ks', 'Write a lint [chec]k for this repository. Use when adding an inspection.'],
+    ['release-[chec]klist', ''],
+  ]);
+  page.type('use');
+  assert.deepEqual(page.rows(), [
+    ['aspect-generator', '…a language aspect. Shipped to [use]rs with the plugin.'],
+    ['code-style', "…the project's code style. [Use] before committing Kotlin or Java changes."],
+    ['commits', '…the way this repository does. [Use] for every commit.'],
+    ['lint-checks', '…check for this repository. [Use] when adding an inspection.'],
+    ['reviews', '…the way this repository does. [Use] before merging.'],
+    ['run-tests', "Run the project's tests. [Use] before every push."],
+  ], 'a snippet around the first match, cut with … before it');
+  page.type('generator');
+  assert.deepEqual(page.rows(), [['aspect-[generator]', 'Generate a language aspect.']], 'in the name only: the description as without a filter');
+  page.type('re view');
+  assert.deepEqual(page.rows().find(([name]) => name.includes('view')), ['[review]s', '[Review] a change the way this [re]pository does. Use befo[re] merging.'], 'every word; touching: one highlight');
+  page.type('');
+  assert.deepEqual(page.rows().find(([name]) => name === 'lint-checks'), ['lint-checks', 'Write a lint check for this repository.'], 'no filter: the description again, nothing highlighted');
+});
+
+test('a new scan keeps the filter', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  page.type('CHEC');
+  await page.scanAgain();
+  assert.equal(page.scans.length, 2);
+  assert.equal(page.filter(), 'CHEC');
+  assert.equal(page.status(), 'fixture · 2 of 7 skills');
+  assert.equal(page.count(), '2 of 7');
+  assert.deepEqual(page.shown(), ['lint-checks', 'release-checklist']);
+  assert.deepEqual(page.rows()[1], ['release-[chec]klist', ''], 'highlighted after the new scan');
+  assert.equal(page.selected(), 'lint-checks');
+  assert.equal(page.linked(), 'CHEC');
 });
 
 test('a GitHub repository: its skills, each with its pinned link and its SKILL.md', async () => {
@@ -143,7 +405,7 @@ test('an organization: its repositories with skills, grouped, each skill with it
   assert.match(page, /el\('li', 'group'\)/, 'a heading per repository');
   assert.match(page, /el\('a', '', group\.repository\.id \+ ' · ' \+ count\(group\.skills\.length, 'skill'\)\)/, 'owner/name · N skills');
   assert.match(page, /link\.href = group\.repository\.url/, 'linked to the repository');
-  assert.match(page, /list\(group\.skills\)/, 'its skills under it');
+  assert.match(page, /list\(group\.skills, heading\)/, 'its skills under it');
 });
 
 /**
@@ -239,6 +501,41 @@ test("the organization's card: its link, its repositories, the bar full, the top
   // The grouped list stays under the card, as before.
   assert.equal(page.document.querySelectorAll('#skills li.group').length, 3);
   assert.equal(page.document.getElementById('status')!.textContent, 'octo-org · 4 skills in 3 of 101 repositories');
+});
+
+test('an organization filtered: the matches across its repositories, a heading only over a match, the count', async (t) => {
+  const page = await pageAt(t, 'https://github.com/octo-org');
+  await page.scanned();
+  const { document } = page;
+  const filter = document.getElementById('filter') as HTMLInputElement;
+  const headings = () =>
+    [...document.querySelectorAll('#skills li.group:not([hidden])')].map((heading) => heading.textContent);
+  const names = () => [...document.querySelectorAll('#skills li[role="option"]:not([hidden]) .name')].map((name) => name.textContent);
+  const all = names();
+  assert.equal(all.length, 4);
+  assert.equal(headings().length, 3);
+
+  // One skill's name: only it, under its own repository's heading.
+  filter.value = all[0]!;
+  filter.dispatchEvent(new document.defaultView!.Event('input'));
+  assert.ok(names().length >= 1 && names().every((name) => name!.includes(all[0]!)));
+  assert.ok(headings().length >= 1 && headings().length < 3, 'a heading only over its matches');
+  assert.equal(document.getElementById('count')!.textContent, `${names().length} of 4`);
+  assert.equal(document.getElementById('status')!.textContent, `octo-org · ${names().length} of 4 skills`);
+  assert.equal(document.querySelector('#skill h2')!.textContent, names()[0]);
+
+  // No match: no heading, no skill.
+  filter.value = 'zzz-nothing';
+  filter.dispatchEvent(new document.defaultView!.Event('input'));
+  assert.deepEqual(headings(), []);
+  assert.equal(document.getElementById('no-match')!.textContent, 'No skills match "zzz-nothing"');
+
+  // Cleared: every heading and skill, the organization's count again.
+  filter.value = '';
+  filter.dispatchEvent(new document.defaultView!.Event('input'));
+  assert.equal(headings().length, 3);
+  assert.equal(names().length, 4);
+  assert.equal(document.getElementById('status')!.textContent, 'octo-org · 4 skills in 3 of 101 repositories');
 });
 
 test("the organization's card: while scanning the bar moves; then the top 3, and +N more", async (t) => {
