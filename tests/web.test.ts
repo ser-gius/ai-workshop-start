@@ -7,11 +7,29 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { createBrowserBackend } from '../src/browser.ts';
-import { serve, type ScanAnswer } from '../src/web.ts';
-import { CLI, EXAMPLE_COMMIT, FIXTURE, open } from './helpers.ts';
+import { userRepositories, type Fetch } from '../src/core/github.ts';
+import { replay } from '../src/core/replay.ts';
+import { serve, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
+import { CLI, EXAMPLE_COMMIT, FIXTURE, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
 
-const { server, url } = await serve({ open, port: 0 });
+// The token goes to GitHub with every /user/repos request.
+const authorized: Fetch = (requested, init) => {
+  assert.equal(init?.headers?.Authorization, 'Bearer test');
+  return replay(USER_REPOSITORIES)(requested, init);
+};
+const { server, url } = await serve({ open, repositories: () => userRepositories({ fetch: authorized, token: 'test' }), port: 0 });
 test.after(() => server.close());
+
+/** GET /api/repositories from a server of its own with these suggestions. */
+async function suggestions(repositories: WebOptions['repositories']): Promise<{ status: number; body: RepositoriesAnswer }> {
+  const other = await serve({ open, repositories, port: 0 });
+  try {
+    const response = await fetch(`${other.url}api/repositories`);
+    return { status: response.status, body: (await response.json()) as RepositoriesAnswer };
+  } finally {
+    other.server.close();
+  }
+}
 
 const scan = async (repo: string) => {
   const response = await fetch(`${url}api/scan?repo=${encodeURIComponent(repo)}`);
@@ -27,6 +45,10 @@ test('the page has a field for a repository link, a skill list and a SKILL.md vi
   assert.match(page, /<ul id="skills"/);
   assert.match(page, /el\('pre', 'skill-md', skill\.text\)/);
   assert.match(page, /URLSearchParams\(location\.search\)\.get\('repo'\)/);
+  assert.match(page, /<input id="repo"[^>]*list="repositories"/);
+  assert.match(page, /<datalist id="repositories">/);
+  assert.match(page, /fetch\('\/api\/repositories'\)/, 'the suggestions load on start');
+  assert.match(page, /option\.value = repository\.url/, 'picking one fills in its URL');
   assert.doesNotMatch(page, /innerHTML/, 'a SKILL.md is shown as text, never as HTML');
 });
 
@@ -91,14 +113,64 @@ test('no link, or an unreachable repository → 400 with a clear message', async
   assert.match(offline.body.error ?? '', /^Cannot reach GitHub: not recorded: /);
 });
 
+test("suggestions: the token's user's repositories, most recently pushed first, page after page", async () => {
+  const response = await fetch(`${url}api/repositories`);
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as RepositoriesAnswer;
+  assert.equal(body.repositories.length, 101);
+  assert.deepEqual(body.repositories[0], {
+    full_name: 'JetBrains/example',
+    url: 'https://github.com/JetBrains/example',
+    description: 'A small repository with one skill',
+  });
+  assert.deepEqual(body.repositories[1], { full_name: 'octocat/repo-1', url: 'https://github.com/octocat/repo-1', description: '' });
+  assert.deepEqual(body.repositories[100], { full_name: 'octocat/last', url: 'https://github.com/octocat/last', description: 'The 101st' });
+  assert.equal(body.hint, undefined);
+  assert.equal(body.error, undefined);
+});
+
+test('suggestions: at most 3 pages of 100', async () => {
+  const full = (page: number) => Array.from({ length: 100 }, (_, i) => ({ full_name: `octocat/p${page}-${i}`, description: null }));
+  const recording = Object.fromEntries([1, 2, 3].map((page) => [userReposUrl(page), { status: 200, body: full(page) }]));
+  // A 4th page is not recorded: asking for it would fail.
+  const { body } = await suggestions(() => userRepositories({ fetch: replay(recording), token: 'test' }));
+  assert.equal(body.error, undefined);
+  assert.equal(body.repositories.length, 300);
+});
+
+test('suggestions without GITHUB_TOKEN: none, and a hint', async () => {
+  const offline: Fetch = () => Promise.reject(new Error('GitHub is not asked without a token'));
+  assert.deepEqual(await suggestions(() => userRepositories({ fetch: offline })), {
+    status: 200,
+    body: { repositories: [], hint: 'Set GITHUB_TOKEN to see your repositories' },
+  });
+});
+
+test('suggestions: a GitHub failure → its clear message, still 200', async () => {
+  const answering = (status: number, body: unknown) => () =>
+    userRepositories({ fetch: replay({ [userReposUrl(1)]: { status, body } }), token: 'test' });
+  assert.deepEqual(await suggestions(answering(401, { message: 'Bad credentials' })), {
+    status: 200,
+    body: { repositories: [], error: 'GitHub rejected the token in GITHUB_TOKEN' },
+  });
+  assert.deepEqual(await suggestions(answering(403, { message: 'API rate limit exceeded for user' })), {
+    status: 200,
+    body: { repositories: [], error: 'GitHub rate limit reached; try again in a minute' },
+  });
+  const unreachable = await suggestions(() => userRepositories({ fetch: replay({}), token: 'test' }));
+  assert.equal(unreachable.status, 200);
+  assert.deepEqual(unreachable.body.repositories, []);
+  assert.match(unreachable.body.error ?? '', /^Cannot reach GitHub: not recorded: /);
+});
+
 test('anything else → 404; only GET', async () => {
   assert.equal((await fetch(`${url}nope`)).status, 404);
   assert.equal((await fetch(url, { method: 'POST' })).status, 405);
 });
 
 /** Starts `./skill-atlas serve <args>`; resolves with the first line it prints. */
-async function startServe(t: { after(fn: () => void): void }, args: string[]): Promise<string> {
-  const child = spawn(process.execPath, [CLI, 'serve', ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+async function startServe(t: { after(fn: () => void): void }, args: string[], env = process.env): Promise<string> {
+  const child = spawn(process.execPath, [CLI, 'serve', ...args], { stdio: ['ignore', 'pipe', 'pipe'], env });
   t.after(() => child.kill());
   return new Promise<string>((resolve, reject) => {
     let out = '';
@@ -118,15 +190,25 @@ test('./skill-atlas serve prints its local URL and answers there', async (t) => 
   assert.equal(answer.skills.length, 7);
 });
 
+test('./skill-atlas serve without GITHUB_TOKEN suggests nothing and hints at it', async (t) => {
+  const { GITHUB_TOKEN: _, ...env } = process.env;
+  const printed = await startServe(t, ['--port', '0'], env);
+  const local = /^Skill Atlas at (\S+)\n$/.exec(printed)?.[1];
+  assert.ok(local, printed);
+  assert.deepEqual(await (await fetch(`${local}api/repositories`)).json(), {
+    repositories: [],
+    hint: 'Set GITHUB_TOKEN to see your repositories',
+  });
+});
+
 test('./skill-atlas serve listens on port 4173 by default', async (t) => {
   assert.equal(await startServe(t, []), 'Skill Atlas at http://127.0.0.1:4173/\n');
 });
 
 test('a foreign Host → 403: no DNS rebinding; localhost is this machine', async () => {
   const { port } = new URL(url);
-  const status = (host: string) =>
+  const status = (host: string, path = `/api/scan?repo=${encodeURIComponent(FIXTURE)}`) =>
     new Promise<number>((resolve, reject) => {
-      const path = `/api/scan?repo=${encodeURIComponent(FIXTURE)}`;
       request({ host: '127.0.0.1', port, path, headers: { Host: host } }, (response) => {
         response.resume();
         resolve(response.statusCode ?? 0);
@@ -138,6 +220,8 @@ test('a foreign Host → 403: no DNS rebinding; localhost is this machine', asyn
   assert.equal(await status('127.0.0.1'), 403, 'without the port');
   assert.equal(await status(`localhost:${port}`), 200);
   assert.equal(await status(`127.0.0.1:${port}`), 200);
+  assert.equal(await status(`attacker.example:${port}`, '/api/repositories'), 403, 'the suggestions too');
+  assert.equal(await status(`localhost:${port}`, '/api/repositories'), 200);
 });
 
 test('serve is only in the Node CLI: its help lists it, the browser terminal does not', async () => {

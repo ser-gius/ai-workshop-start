@@ -2,7 +2,7 @@
 // The Node client: a GitHub repository through the GitHub API, or a local directory; stdout and
 // stderr, or the local web view. Nothing is stored.
 import { run } from './commands.ts';
-import { openGitHub, parseGitHubUrl } from './core/github.ts';
+import { openGitHub, parseGitHubUrl, userRepositories } from './core/github.ts';
 import type { Source } from './core/scan.ts';
 import { openDirectory } from './local.ts';
 import { serve } from './web.ts';
@@ -19,7 +19,7 @@ if (args[0] === 'serve') {
     process.exitCode = 1;
   } else {
     try {
-      const { url } = await serve({ open, port });
+      const { url } = await serve({ open, repositories: () => userRepositories({ fetch, token }), port });
       console.log(`Skill Atlas at ${url}`);
     } catch (error) {
       console.error(`Cannot start the web view: ${error instanceof Error ? error.message : String(error)}`);
