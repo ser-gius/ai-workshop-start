@@ -33,6 +33,8 @@ its *committer* date, in UTC (`2026-03-01T01:00:00+02:00` → `2026-02-28T23:00:
 - A local directory: `git log` in the git repository it is in (it may be below the root); changes not committed
   yet do not count
 - No commit touched it (a local skill not committed yet), or a directory outside git → *no date*, no warning
+- A **shallow clone** whose history stops before the skill's last change (the commit found is where it stops,
+  and adds every file) → *no date*, no warning
 - A folder's history that fails → a *warning* (`<path>: last update unknown: <message>`), the skill without a date;
   the rate limit, a rejected token, GitHub unreachable stop the scan, as anywhere else
 

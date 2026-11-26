@@ -22,31 +22,47 @@ export async function openDirectory(input: string): Promise<Source> {
     throw new AtlasError(`Not a GitHub URL or a readable directory: ${input}`);
   }
   const limit = limiter(8); // a git process per skill, a few at a time
+  let boundary: Promise<string[]> | undefined;
+  const shallow = () => (boundary ??= shallowCommits(root)); // read once, when the first skill asks
   return {
     repository: { id: name, organization: 'local', name, url: pathToFileURL(root).href, commit: '' },
     paths,
     warnings: [],
     read: (path) => readFile(join(root, path)).then((bytes) => new Uint8Array(bytes), () => undefined),
-    updated: (folders) => limit(() => lastCommit(root, folders)),
+    updated: (folders) => limit(() => lastCommit(root, folders, shallow)),
   };
 }
 
 /**
  * The time of the latest commit that touched one of the folders, from the git repository the
- * directory is in. Undefined outside a git repository, without git, or when no commit touched them.
+ * directory is in. Undefined outside a git repository, without git, or when no commit touched them;
+ * undefined too when that commit is where a shallow clone's history stops: it adds every file, and
+ * the real change is older than the clone.
  */
-async function lastCommit(root: string, folders: string[]): Promise<string | undefined> {
+async function lastCommit(root: string, folders: string[], shallow: () => Promise<string[]>): Promise<string | undefined> {
   try {
-    // Literal paths: a folder named `:x` or `*` is that folder, not a pattern.
-    const { stdout } = await promisify(execFile)(
-      'git',
-      ['--literal-pathspecs', '-C', root, 'log', '-1', '--format=%cI', '--', ...folders],
-      { env: gitEnv() },
-    );
-    return utc(stdout.trim());
+    const [hash, time] = (await git(root, ['log', '-1', '--format=%H %cI', '--', ...folders])).split(' ');
+    if (!hash || (await shallow()).includes(hash)) return undefined;
+    return utc(time);
   } catch {
     return undefined;
   }
+}
+
+/** The commits where the repository's history stops, in a shallow clone (`.git/shallow`); none in a full one. */
+async function shallowCommits(root: string): Promise<string[]> {
+  try {
+    const file = await git(root, ['rev-parse', '--path-format=absolute', '--git-path', 'shallow']);
+    return (await readFile(file, 'utf8')).split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Runs git in the directory; its output, trimmed. Literal paths: a folder named `:x` or `*` is that folder, not a pattern. */
+async function git(root: string, args: string[]): Promise<string> {
+  const { stdout } = await promisify(execFile)('git', ['--literal-pathspecs', '-C', root, ...args], { env: gitEnv() });
+  return stdout.trim();
 }
 
 /** Every regular file under the directory, as a path relative to the root. */

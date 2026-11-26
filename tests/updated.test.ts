@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { test, type TestContext } from 'node:test';
 import { createBrowserBackend } from '../src/browser.ts';
 import { openGitHub, type Fetch } from '../src/core/github.ts';
@@ -194,6 +195,30 @@ test('a local directory in git, below its root: paths are its own, the history t
   repo.commit('2026-02-03T04:05:06Z');
   const { skills } = await scan(await openDirectory(join(repo.root, 'packages/app')));
   assert.deepEqual(skills.map((skill) => [skill.path, skill.updated]), [['.claude/skills/build/SKILL.md', '2026-02-03T04:05:06Z']]);
+});
+
+test('a shallow clone: where its history stops is no change of the skill; a later commit is', async (t) => {
+  const repo = repository(t);
+  repo.write('.claude/skills/old/SKILL.md', skillMd('old'));
+  repo.write('.claude/skills/new/SKILL.md', skillMd('new'));
+  repo.commit('2026-01-02T03:04:05Z');
+  repo.write('README.md', 'Unrelated.\n');
+  repo.commit('2026-02-03T04:05:06Z');
+  repo.write('.claude/skills/new/SKILL.md', `${skillMd('new')}\nChanged.\n`);
+  repo.commit('2026-03-04T05:06:07Z');
+  const clone = mkdtempSync(join(tmpdir(), 'skill-atlas-shallow-'));
+  t.after(() => rmSync(clone, { recursive: true, force: true }));
+  // Its history: the last two commits; the first, which made `old`, is not in it.
+  const done = spawnSync('git', ['clone', '-q', '--depth', '2', pathToFileURL(repo.root).href, clone], { encoding: 'utf8' });
+  assert.equal(done.status, 0, done.stderr);
+  const { skills, warnings } = await scan(await openDirectory(clone));
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(skills.map((skill) => [skill.name, skill.updated]), [['new', '2026-03-04T05:06:07Z'], ['old', undefined]]);
+  // The full repository knows both.
+  assert.deepEqual(
+    (await scan(await openDirectory(repo.root))).skills.map((skill) => [skill.name, skill.updated]),
+    [['new', '2026-03-04T05:06:07Z'], ['old', '2026-01-02T03:04:05Z']],
+  );
 });
 
 test('a local directory outside git: no day, no warning', async (t) => {
