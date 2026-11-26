@@ -143,6 +143,20 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
 - `serve [--port <number>]` is listed. The browser terminal's `help`, which must *not* list it, has no page
   to open yet: covered by `npm test` only
 
+### WEB-30 · When each skill last changed
+*Step 1 needs `GITHUB_TOKEN`: without it, a GitHub skill has no day.*
+
+**Steps**
+1. Scan `https://github.com/JetBrains/koog`; hover over a skill's day
+2. Select another skill
+3. Scan `/tmp/qa-plain` (from CLI-19: the fixture outside git)
+
+**Should see**
+- Step 1: each skill's day, `YYYY-MM-DD`, under its name; on hover,
+  `Last updated <day> <hh:mm:ss> UTC`. On the right, under the link, `updated <day>`: the same day
+- Step 2: its own `updated <day>`, as `./skill-atlas scan` prints it
+- Step 3: no day anywhere, no warning
+
 ## The organization
 
 ### WEB-14 · An organization: grouped by repository
@@ -284,8 +298,10 @@ On `<checkout>/fixture` unless a case says otherwise.
 
 **Should see**
 - Step 1: JSON `{ repository, skills, warnings }`; each skill has `name`, `description` (on one line),
-  `summary` (its first sentence), `path`, `link`, `copies` and `text` (the whole SKILL.md); `reviews` has
-  `copies: [".claude/skills/reviews/SKILL.md"]`; `warnings` has the `release-checklist` one
+  `summary` (its first sentence), `path`, `link`, `copies`, `text` (the whole SKILL.md) and `updated`
+  (the time of the latest commit to its folder or a copy's, in UTC, `YYYY-MM-DDThh:mm:ssZ`:
+  `git log -1 --format=%cI -- fixture/.claude/skills/commits` for `commits`; `null` for a directory outside
+  git); `reviews` has `copies: [".claude/skills/reviews/SKILL.md"]`; `warnings` has the `release-checklist` one
 - Step 2: `{"error":"Enter a repository link"} 400`
 - Step 3: `{"error":"Not a GitHub URL or a readable directory: /no/such/directory"} 400`
 

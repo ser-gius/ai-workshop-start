@@ -5,12 +5,15 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - A request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` → 403 (no DNS rebinding)
 ## Page
 - A **field** for a repository link: a GitHub URL, a GitHub organization URL, or a local directory
-- The repository and its skill count, then **every skill**: name and description, sorted by name
+- The repository and its skill count, then **every skill**: name, description and the **day** it last changed
+  ([analysis](analysis.md#when-a-skill-last-changed)), sorted by name
+  - The day, `2026-11-20` (UTC), under the name; its whole time on hover
+    (`Last updated 2026-11-20 09:14:03 UTC`). No date → nothing there
 - A description is **trimmed** to its first sentence, on one line, at most *two lines* on screen
   (a long sentence too); when there is more (a second sentence, or a sentence cut at two lines), it is
   **foldable**: `▸` shows it, a click unfolds the whole description (`▾`), another folds it.
   Folding does not change the selected skill
-- A selected skill (the first one at first): its name, link, `also in <paths>`, and its **SKILL.md** as it is
+- A selected skill (the first one at first): its name, link, `also in <paths>`, `updated <day>`, and its **SKILL.md** as it is
 - **Suggestions** in the field: the user's GitHub repositories; picking one fills in its URL
   - Without `GITHUB_TOKEN`: none, and a hint to set it; a GitHub failure → its *clear message*, the page still works
 - Warnings under the field; an unreachable repository → its *clear message*, no skills
@@ -47,7 +50,8 @@ A **filter field** above the skill list narrows it *as you type*, no new scan
   an empty filter drops the parameter
 ## API
 `GET /api/scan?repo=<link>` → JSON `{ repository, skills, warnings }`; a skill has `name`,
-`description` (on one line), `summary` (its first sentence), `path`, `link`, `copies` and `text`, the SKILL.md
+`description` (on one line), `summary` (its first sentence), `path`, `link`, `copies`, `text`, the SKILL.md,
+and `updated`, the time it last changed (ISO 8601 in UTC, `2026-11-20T09:14:03Z`), `null` without a date
 - No link, or an unreachable repository → 400 `{ error }`
 - An organization → `{ organization, repositories, warnings }`: `organization` has `id`, `url` and `repositories`
   (how many, forks left out); `repositories` lists those with skills, each `{ repository, skills }` as above

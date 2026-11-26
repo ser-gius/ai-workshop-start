@@ -1,7 +1,7 @@
 // The skill-atlas commands. The same code serves the Node CLI and the browser
 // terminal: everything that differs between them comes in through the context.
 import { AtlasError } from './core/errors.ts';
-import { firstSentence, skillLink, type Repository, type Skill } from './core/model.ts';
+import { day, firstSentence, skillLink, type Repository, type Skill } from './core/model.ts';
 import { isOrganization, scan, scanOrganization, type OrganizationResult, type OrganizationSource, type Source } from './core/scan.ts';
 
 export type Context = {
@@ -66,12 +66,13 @@ function count(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** `<owner>/<repo> · N skills`, then each skill's name, first sentence and link. */
+/** `<owner>/<repo> · N skills`, then each skill's name, first sentence, link, copies and the day it last changed. */
 function printRepository(repository: Repository, skills: Skill[], { print }: Context) {
   print(`${repository.id} · ${count(skills.length, 'skill')}`);
   for (const skill of skills) {
     print(skill.description ? `${skill.name} — ${firstSentence(skill.description)}` : skill.name);
     print(`  ${skillLink(repository, skill)}`);
     if (skill.copies.length > 0) print(`  also in ${skill.copies.join(', ')}`);
+    if (skill.updated) print(`  updated ${day(skill.updated)}`);
   }
 }

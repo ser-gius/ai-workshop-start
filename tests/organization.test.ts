@@ -6,7 +6,7 @@ import { createBrowserBackend } from '../src/browser.ts';
 import { openGitHub, openOrganization, parseGitHubOwnerUrl, parseGitHubUrl, type Fetch } from '../src/core/github.ts';
 import { replay, type Recording } from '../src/core/replay.ts';
 import { scanOrganization } from '../src/core/scan.ts';
-import { atlasOn, EXAMPLE_COMMIT, ORGANIZATION, searchUrl, USER } from './helpers.ts';
+import { atlasOn, EXAMPLE_COMMIT, history, ORGANIZATION, searchUrl, USER } from './helpers.ts';
 
 const blob = (id: string, path: string) => `  https://github.com/${id}/blob/${EXAMPLE_COMMIT}/${path}`;
 
@@ -32,19 +32,24 @@ test('an organization: its skill count, then each repository with skills, sorted
       'octo-org/agents · 2 skills',
       'commits — Write commit messages the way this organization does.',
       blob('octo-org/agents', '.claude/skills/commits/SKILL.md'),
+      '  updated 2026-10-01',
       'reviews — Review a change.',
       blob('octo-org/agents', '.agents/skills/reviews/SKILL.md'),
       // Copies within the repository; test data is not a skill.
       '  also in .claude/skills/reviews/SKILL.md',
+      // The copy changed last: the skill's day is the copy's.
+      '  updated 2026-09-15',
       '',
       'octo-org/Docs · 1 skill',
       'style',
       blob('octo-org/Docs', '.github/skills/style/SKILL.md'),
+      '  updated 2026-08-05',
       '',
       // At its default branch, trunk.
       'octo-org/tools · 1 skill',
       'lint — Write a lint check.',
       blob('octo-org/tools', 'agent/skills/lint/SKILL.md'),
+      '  updated 2026-07-04',
     ].join('\n'),
   );
 });
@@ -101,6 +106,7 @@ test('without GITHUB_TOKEN, a user: each repository through its tree; an empty o
       '',
       'octocat/hello · 1 skill',
       'greet — Greet the user.',
+      // Without a token, no history is asked: no day.
       blob('octocat/hello', '.claude/skills/greet/SKILL.md'),
     ].join('\n'),
   );
@@ -143,6 +149,8 @@ test('with GITHUB_TOKEN, more than 20 repositories: one code search; for a user,
       status: 200,
       body: '---\nname: greet\ndescription: Greet the user.\n---\n',
     },
+    // No commit touched it: no day.
+    ...history('many/docs', '.claude/skills/greet', undefined),
   };
   // No tree is recorded: the other 20 repositories are never asked for.
   const { code, stdout, stderr } = await atlasOn(recording, 'github.com/many');

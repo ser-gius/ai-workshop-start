@@ -79,8 +79,10 @@ And these *are* listed
 JetBrains/koog · 2 skills
 add-java-code-snippets-in-docs — Use when the user asks to add Java tabs/examples to mkdocs docs that already have Kotlin examples (files under docs/docs/**.md using === "Kotlin" / Knit INCLUDE+SUFFIX blocks).
   https://github.com/JetBrains/koog/blob/709079e4a34d6c9234583352550e6a2b88a0bb85/.claude/skills/add-java-code-snippets-in-docs/SKILL.md
+  updated 2026-05-18
 split-jvm-nonjvm — Splits a class or several classes in the common source set commonMain into JVM and non-JVM parts into jvmCommonMain and nonJvmCommonMain.
   https://github.com/JetBrains/koog/blob/709079e4a34d6c9234583352550e6a2b88a0bb85/.claude/skills/split-jvm-nonjvm/SKILL.md
+  updated 2026-03-25
 ```
 - `weather-retrieval` and `arithmetic-evaluator` (test data) are **not** listed
 - Nothing on stderr; exit code 0
@@ -198,3 +200,18 @@ split-jvm-nonjvm — Splits a class or several classes in the common source set 
 
 **Should see**
 - The repository and its skills in **under 5 seconds** (`real`), with no clone on disk
+
+## CLI-19 · When each skill last changed
+*Step 1 needs `GITHUB_TOKEN`.*
+
+**Steps**
+1. `./skill-atlas scan github.com/JetBrains/MPS/tree/1cbf7f783dbc5c74c8e5231d31f61b02829143de 2>/dev/null | grep -A3 '^actions '`
+2. `./skill-atlas scan fixture 2>/dev/null`
+3. `rm -rf /tmp/qa-plain && cp -r fixture /tmp/qa-plain && ./skill-atlas scan /tmp/qa-plain`
+
+**Should see**
+- Step 1: `actions`, its link, `also in .claude/skills/actions/SKILL.md`, then `updated 2026-05-21`: the day its
+  copy in `.claude` changed, later than its `.agents` folder (2026-04-14). Every skill's block ends with `updated <day>`
+- Step 2: each skill's last line is `updated <YYYY-MM-DD>`: the day of the latest commit to its folder in this
+  checkout (`git log -1 --format=%cs -- fixture/.claude/skills/commits` for `commits`, in UTC)
+- Step 3: outside git: no `updated` line at all, and no warning about it

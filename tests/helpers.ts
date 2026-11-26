@@ -11,8 +11,22 @@ export const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 /** The commit GitHub answers for JetBrains/example. */
 export const EXAMPLE_COMMIT = '5ab6270ab772d113e8ad52ebfcaa0109c522ae00';
 
+/** A folder's history up to the commit, one commit a page, as GitHub is asked for it. */
+export const historyUrl = (id: string, folder: string, commit = EXAMPLE_COMMIT) =>
+  `https://api.github.com/repos/${id}/commits?sha=${commit}&path=${folder}&per_page=1`;
+
+/** What GitHub answers for a folder's history: its latest commit, committed at `date`; none if undefined. */
+export function history(id: string, folder: string, date: string | undefined, commit = EXAMPLE_COMMIT): Recording {
+  const commits = date === undefined ? [] : [{ sha: 'c0ffee', commit: { committer: { date }, author: { date: '2000-01-01T00:00:00Z' } } }];
+  return { [historyUrl(id, folder, commit)]: { status: 200, body: commits } };
+}
+
+/** When JetBrains/example's skill last changed. */
+export const EXAMPLE_UPDATED = '2026-11-20T09:14:03Z';
+
 /** What GitHub answers for a small repository, JetBrains/example, with one skill. */
 const EXAMPLE: Recording = {
+  ...history('JetBrains/example', '.claude/skills/commits', EXAMPLE_UPDATED),
   'https://api.github.com/repos/JetBrains/example': { status: 200, body: { full_name: 'JetBrains/example', default_branch: 'main' } },
   'https://api.github.com/repos/JetBrains/example/commits/main': { status: 200, body: { sha: EXAMPLE_COMMIT } },
   'https://api.github.com/search/code?q=filename:SKILL.md+repo:JetBrains/example&per_page=100&page=1': {
@@ -47,7 +61,7 @@ export async function atlas(args: string[]) {
   return { code, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
 }
 
-/** What GitHub answers, through code search, for a repository with these SKILL.md files at EXAMPLE_COMMIT. */
+/** What GitHub answers, through code search, for a repository with these SKILL.md files at EXAMPLE_COMMIT, each folder last changed at EXAMPLE_UPDATED. */
 export function recordRepository(id: string, files: Record<string, string>): Recording {
   const recording: Recording = {
     [`https://api.github.com/repos/${id}`]: { status: 200, body: { full_name: id, default_branch: 'main' } },
@@ -59,6 +73,7 @@ export function recordRepository(id: string, files: Record<string, string>): Rec
   };
   for (const [path, body] of Object.entries(files)) {
     recording[`https://raw.githubusercontent.com/${id}/${EXAMPLE_COMMIT}/${path}`] = { status: 200, body };
+    Object.assign(recording, history(id, path.slice(0, path.lastIndexOf('/')), EXAMPLE_UPDATED));
   }
   return recording;
 }
@@ -106,7 +121,7 @@ export const searchUrl = (qualifier: string, page: number) =>
 
 /**
  * What GitHub answers, with a token, for an organization, octo-org: 102 repositories on two pages.
- * - `agents`: two skills, one with a copy, and test data
+ * - `agents`: two skills, one with a copy, changed after its linked folder, and test data
  * - `Docs`: malformed front matter
  * - `tools`: its default branch is `trunk`
  * - `broken`: its commit is not found
@@ -153,6 +168,11 @@ export const ORGANIZATION: Recording = {
     body: skillMd('commits', 'Write commit messages the way this organization does. Use for every commit.'),
   },
   [raw('octo-org/agents', '.agents/skills/reviews/SKILL.md')]: { status: 200, body: skillMd('reviews', 'Review a change.') },
+  ...history('octo-org/agents', '.claude/skills/commits', '2026-10-01T12:00:00Z'),
+  ...history('octo-org/agents', '.agents/skills/reviews', '2026-09-01T08:00:00Z'),
+  ...history('octo-org/agents', '.claude/skills/reviews', '2026-09-15T23:30:00Z'),
+  ...history('octo-org/Docs', '.github/skills/style', '2026-08-05T10:00:00Z'),
+  ...history('octo-org/tools', 'agent/skills/lint', '2026-07-04T00:00:00Z'),
   [commitOf('octo-org/Docs')]: { status: 200, body: { sha: EXAMPLE_COMMIT } },
   [raw('octo-org/Docs', '.github/skills/style/SKILL.md')]: { status: 200, body: '---\nname: style\ndescription: a: b: c\n---\n' },
   [commitOf('octo-org/broken')]: { status: 422, body: { message: 'No commit found for SHA: main' } },
@@ -184,6 +204,7 @@ export const USER: Recording = {
     },
   },
   [raw('octocat/hello', '.claude/skills/greet/SKILL.md')]: { status: 200, body: skillMd('greet', 'Greet the user. Use it first.') },
+  ...history('octocat/hello', '.claude/skills/greet', '2026-06-30T23:59:59Z'),
   'https://api.github.com/repos/octocat/empty': { status: 200, body: { full_name: 'octocat/empty', default_branch: 'main' } },
   [commitOf('octocat/empty')]: { status: 409, body: { message: 'Git Repository is empty.' } },
 };

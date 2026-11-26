@@ -33,6 +33,8 @@ export type RepositoryAnswer = {
     link: string;
     copies: string[];
     text: string;
+    /** When its files last changed, ISO 8601 in UTC; null when unknown. */
+    updated: string | null;
   }[];
 };
 
@@ -60,6 +62,7 @@ function repositoryAnswer({ repository, skills }: ScanResult): RepositoryAnswer 
       link: skillLink(repository, skill),
       copies: skill.copies,
       text: skill.text,
+      updated: skill.updated ?? null,
     })),
   };
 }
@@ -232,9 +235,11 @@ const PAGE = `<!doctype html>
   #skills li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; align-items: baseline; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
   #skills li:hover { background: #eeece6; }
   #skills li[aria-selected="true"] { background: var(--tile); box-shadow: inset 3px 0 0 var(--accent); }
-  #skills .name { font: 15px/1.5 var(--mono); white-space: nowrap; }
-  #skills .description, #skills .snippet { color: var(--muted); font-size: 14px; min-width: 0; }
+  #skills .name { grid-column: 1; grid-row: 1; font: 15px/1.5 var(--mono); white-space: nowrap; }
+  #skills .description, #skills .snippet { grid-column: 2; grid-row: 1 / span 2; color: var(--muted); font-size: 14px; min-width: 0; }
   #skills .snippet { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The day it last changed, under its name: the description keeps its width. */
+  #skills .updated { grid-column: 1; grid-row: 2; color: var(--muted); font: 12px/1.4 var(--mono); white-space: nowrap; }
   mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 1px; }
   /* An organization's card: what was scanned, how far, and the repositories with the most skills. */
   #organization { margin-bottom: 24px; max-width: 760px; }
@@ -269,7 +274,7 @@ const PAGE = `<!doctype html>
   #skill:empty { display: none; }
   #skill .card-title h2 { font-family: var(--mono); font-size: 21px; letter-spacing: 0; }
   #skill a { color: var(--accent); word-break: break-all; font-size: 13px; }
-  #skill .copies { margin-top: 2px; color: var(--muted); font-size: 13px; }
+  #skill .copies, #skill .updated { margin-top: 2px; color: var(--muted); font-size: 13px; }
   pre { margin: 12px 0 0; white-space: pre-wrap; word-wrap: break-word; font: 13px/1.55 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
 </style>
 </head>
@@ -390,7 +395,18 @@ function show(skill, item) {
   link.rel = 'noopener';
   view.append(link);
   if (skill.copies.length) view.append(el('div', 'copies', 'also in ' + skill.copies.join(', ')));
+  if (skill.updated) view.append(updated('div', skill.updated, 'updated '));
   view.append(el('pre', 'skill-md', skill.text));
+}
+
+// The day a skill last changed, 2025-11-20 (UTC), its whole time on hover.
+function updated(tag, time, prefix) {
+  const node = el(tag, 'updated');
+  const date = el('time', '', time.slice(0, 10));
+  date.dateTime = time;
+  date.title = 'Last updated ' + time.replace('T', ' ').replace('Z', ' UTC');
+  node.append(prefix || '', date);
+  return node;
 }
 
 function count(n, one, many) {
@@ -405,6 +421,7 @@ function list(skills, group) {
     item.append(el('div', 'name', skill.name));
     if (skill.description) item.append(description(skill));
     item.append(el('div', 'snippet'));
+    if (skill.updated) item.append(updated('div', skill.updated));
     item.addEventListener('click', () => show(skill, item));
     $('skills').append(item);
     foldIfClamped(item, skill);

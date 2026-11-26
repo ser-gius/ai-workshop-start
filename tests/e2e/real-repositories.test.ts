@@ -54,6 +54,21 @@ test('JetBrains/MPS: duplicates in .agents and .claude, and the product copies i
   assert.equal(lines.filter((line) => line.includes(`, ${plugin}/`)).length, 33);
 });
 
+test("JetBrains/MPS: a skill's day is its latest folder's; actions changed in .claude after .agents", async () => {
+  const { stdout } = await scans.mps;
+  const lines = stdout.trimEnd().split('\n');
+  // Every skill has its day, the last line of its block.
+  assert.equal(lines.filter((line) => /^  updated \d{4}-\d{2}-\d{2}$/.test(line)).length, 43);
+  const at = lines.findIndex((line) => line.startsWith('actions — '));
+  assert.ok(at > 0, 'actions is listed');
+  // .agents/skills/actions last changed on 2026-04-14, its copy in .claude/skills/actions on 2026-05-21.
+  assert.deepEqual(lines.slice(at + 1, at + 4), [
+    blob('JetBrains/MPS', MPS, '.agents/skills/actions/SKILL.md'),
+    '  also in .claude/skills/actions/SKILL.md',
+    '  updated 2026-05-21',
+  ]);
+});
+
 test('JetBrains/android: an unusual folder, agent/skills; the name from the front matter, else the directory', async () => {
   const { stdout, stderr } = await scans.android;
   assert.equal(stderr, '');
@@ -64,17 +79,23 @@ test('JetBrains/android: an unusual folder, agent/skills; the name from the fron
       'JetBrains/android · 6 skills',
       'android-studio-development — Specialist in Android Studio plugin development.',
       link('android-studio-development'),
+      '  updated 2026-07-15',
       'android-studio-diagnostics-analysis — Analyzes Android Studio diagnostic logs and thread dumps to identify UI freezes, lock contention, and system configuration issues.',
       link('android-studio-diagnostics-analysis'),
+      '  updated 2026-09-16',
       'jewel-swing-interop — Integrate Jewel Compose UI with Swing in IntelliJ Platform plugins or desktop apps.',
       link('jewel-swing-interop'),
+      '  updated 2026-09-21',
       'jewel-ui — Build or modify Compose Desktop UI using JetBrains Jewel components, theming, and icon loading.',
       link('jewel-ui'),
+      '  updated 2026-09-21',
       // Named in its front matter, not after its directory.
       'write-evals — Expertise in building new AI agent evaluations (evals) for Android Studio.',
       link('android-studio-evals'),
+      '  updated 2026-09-07',
       'writing-lint-checks — Helps to write a new lint check under `/tools/base/lint/libs/lint-checks`.',
       link('writing-lint-checks'),
+      '  updated 2026-09-21',
       '',
     ].join('\n'),
   );
@@ -89,8 +110,10 @@ test('JetBrains/koog: test data, weather-retrieval and arithmetic-evaluator, is 
       'JetBrains/koog · 2 skills',
       'add-java-code-snippets-in-docs — Use when the user asks to add Java tabs/examples to mkdocs docs that already have Kotlin examples (files under docs/docs/**.md using === "Kotlin" / Knit INCLUDE+SUFFIX blocks).',
       blob('JetBrains/koog', KOOG, '.claude/skills/add-java-code-snippets-in-docs/SKILL.md'),
+      '  updated 2026-05-18',
       'split-jvm-nonjvm — Splits a class or several classes in the common source set commonMain into JVM and non-JVM parts into jvmCommonMain and nonJvmCommonMain.',
       blob('JetBrains/koog', KOOG, '.claude/skills/split-jvm-nonjvm/SKILL.md'),
+      '  updated 2026-03-25',
       '',
     ].join('\n'),
   );

@@ -1,12 +1,14 @@
 // Records what GitHub answers for the demo's scans into github.json.gz, so the visual tests replay the
 // same data on every run: `GITHUB_TOKEN=$(gh auth token) node tests/visual/record-github.ts`.
 // Only the fields Skill Atlas reads are kept. Run it again only to move the data on; the baselines change with it.
+// `--missing` keeps what is recorded and asks GitHub only for what the scans now ask and it lacks: the same
+// data, a few more answers.
 import { writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { openGitHub, openOrganization, type Fetch } from '../../src/core/github.ts';
 import type { Recording } from '../../src/core/replay.ts';
 import { scan, scanOrganization } from '../../src/core/scan.ts';
-import { DEMO_ORGANIZATION, DEMO_REPOSITORY, RECORDING } from './data.ts';
+import { DEMO_ORGANIZATION, DEMO_REPOSITORY, RECORDING, recording as recordedBefore } from './data.ts';
 
 const token = process.env.GITHUB_TOKEN;
 if (!token) throw new Error('set GITHUB_TOKEN: the demo scans an organization through code search');
@@ -18,6 +20,12 @@ const trim = (value: unknown): unknown =>
     : value && typeof value === 'object'
       ? Object.fromEntries(Object.entries(value).filter(([key]) => KEPT.has(key)).map(([key, inner]) => [key, trim(inner)]))
       : value;
+
+/** A folder's history, one commit a page (`/repos/<id>/commits?…&path=…`): only each commit's date is read. */
+const HISTORY = /\/repos\/[^/]+\/[^/]+\/commits\?/;
+type Commit = { commit?: { committer?: { date?: string } } };
+const history = (body: unknown): unknown =>
+  Array.isArray(body) ? body.map((item: Commit) => ({ commit: { committer: { date: item.commit?.committer?.date } } })) : trim(body);
 
 // The token may see private and internal repositories: GitHub answers here as if they did not exist,
 // so nothing of theirs is recorded (this repository is public).
@@ -68,10 +76,14 @@ const listed = (init: Parameters<Fetch>[1]) => async (prefix: string) => {
   }
 };
 
-const recording: Recording = {};
+const recording: Recording = process.argv.includes('--missing') ? recordedBefore() : {};
 const recorded: Fetch = async (url, init) => {
   let status: number;
   let body: unknown;
+  if (Object.hasOwn(recording, url)) {
+    ({ status, body } = recording[url]);
+    return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
+  }
   if (url.includes('/search/code?')) {
     const { items, total } = await repaged(url, init, searched(init));
     [status, body] = [200, { total_count: total, items }];
@@ -83,13 +95,15 @@ const recorded: Fetch = async (url, init) => {
     status = response.status;
     body = response.headers.get('content-type')?.includes('json') ? JSON.parse(text) : text;
   }
-  if (typeof body === 'object' && body !== null) body = trim(body);
+  if (typeof body === 'object' && body !== null) body = HISTORY.test(url) ? history(body) : trim(body);
   recording[url] = { status, body };
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
 };
 
 await scan(await openGitHub(DEMO_REPOSITORY, { fetch: recorded, token }));
 await scanOrganization(await openOrganization(DEMO_ORGANIZATION, { fetch: recorded, token }));
+// Answers recorded before only their dates were kept, kept the same way now.
+for (const [url, answer] of Object.entries(recording)) if (HISTORY.test(url)) answer.body = history(answer.body);
 const sorted = Object.fromEntries(Object.entries(recording).sort(([a], [b]) => a.localeCompare(b)));
 writeFileSync(RECORDING, gzipSync(JSON.stringify(sorted, null, 1)));
 console.log(`${Object.keys(sorted).length} answers in ${RECORDING}`);

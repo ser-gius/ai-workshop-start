@@ -1,5 +1,6 @@
 import { AtlasError, EmptyRepositoryError, UnavailableError } from './errors.ts';
 import { SKILL_ROOTS } from './find.ts';
+import { latest, utc } from './model.ts';
 import type { OrganizationSource, Source } from './scan.ts';
 
 /** The part of `fetch` the core uses, so tests and the browser can pass their own. */
@@ -53,7 +54,7 @@ export async function openGitHub(input: string, options: GitHubOptions): Promise
     : name.ref
       ? await wholeTree(github, id, sha)
       : await searchPaths(github, id);
-  return source(github, id, sha, paths, warnings);
+  return source(github, id, sha, paths, warnings, options.token !== undefined);
 }
 
 /** A repository as GitHub lists it among its owner's. */
@@ -98,7 +99,7 @@ export async function openOrganization(input: string, options: GitHubOptions): P
           // With a token, the whole tree, a directory at a time if need be; without, the skill roots of a large one.
           const paths =
             found?.get(id) ?? (options.token ? await wholeTree(github, id, sha) : await treePaths(github, id, sha, repositoryWarnings));
-          return source(github, id, sha, paths, repositoryWarnings);
+          return source(github, id, sha, paths, repositoryWarnings, options.token !== undefined);
         },
       })),
     warnings,
@@ -125,15 +126,33 @@ async function commit(github: Client, id: string, ref: string): Promise<string> 
   return sha;
 }
 
-/** The repository at the commit: these files, read from there. */
-function source(github: Client, id: string, sha: string, paths: string[], warnings: string[]): Source {
+/**
+ * The repository at the commit: these files, read from there. With `dates`, when each skill last changed;
+ * without a token there are none: a request per skill folder would use up GitHub's 60 an hour.
+ */
+function source(github: Client, id: string, sha: string, paths: string[], warnings: string[], dates: boolean): Source {
   const [organization, repo] = id.split('/');
   return {
     repository: { id, organization, name: repo, url: `https://github.com/${id}`, commit: sha },
     paths,
     warnings,
     read: (path) => github.raw(`${RAW}/${id}/${sha}/${encodePath(path)}`),
+    ...(dates && {
+      updated: async (folders: string[]) => latest(await Promise.all(folders.map((folder) => lastCommit(github, id, sha, folder)))),
+    }),
   };
+}
+
+/** A commit as GitHub lists it in a history: only its committer's date is read. */
+type ListedCommit = { commit?: { committer?: { date?: string } } };
+
+/**
+ * The time of the latest commit, up to `sha`, that touched the folder: the first of its history,
+ * one commit a page. Undefined when there is none.
+ */
+async function lastCommit(github: Client, id: string, sha: string, folder: string): Promise<string | undefined> {
+  const history = await github.json<ListedCommit[]>(`${API}/repos/${id}/commits?sha=${sha}&path=${encodePath(folder)}&per_page=1`);
+  return Array.isArray(history) ? utc(history[0]?.commit?.committer?.date) : undefined;
 }
 
 /** One of the user's repositories, as the web view suggests it. */
@@ -344,7 +363,7 @@ function retryAfter(response: Response, text: string): number | undefined {
 }
 
 /** Runs at most `size` tasks at a time; the rest wait their turn. */
-function limiter(size: number) {
+export function limiter(size: number) {
   let running = 0;
   const waiting: (() => void)[] = [];
   return async <T>(task: () => Promise<T>): Promise<T> => {

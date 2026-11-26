@@ -1,7 +1,8 @@
 // spec/web.md: the local web view, over ./fixture and the GitHub repository answered in tests/helpers.ts.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -11,7 +12,7 @@ import { createBrowserBackend } from '../src/browser.ts';
 import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
 import { filterCount, filterSnippet, highlightRanges, matchesFilter, serve, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
-import { CLI, EXAMPLE_COMMIT, FIXTURE, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
+import { CLI, EXAMPLE_COMMIT, EXAMPLE_UPDATED, FIXTURE, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
 
 // The token goes to GitHub with every /user/repos request.
 const authorized: Fetch = (requested, init) => {
@@ -347,6 +348,7 @@ test('a GitHub repository: its skills, each with its pinned link and its SKILL.m
       link: `https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`,
       copies: [],
       text: '---\nname: commits\ndescription: Write commit messages the way this repository does. Use for every commit.\n---\n# Commits\n',
+      updated: EXAMPLE_UPDATED,
     },
   ]);
   assert.deepEqual(body.warnings, []);
@@ -393,8 +395,10 @@ test('an organization: its repositories with skills, grouped, each skill with it
     link: `https://github.com/octo-org/agents/blob/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`,
     copies: [],
     text: '---\nname: commits\ndescription: Write commit messages the way this organization does. Use for every commit.\n---\n',
+    updated: '2026-10-01T12:00:00Z',
   });
   assert.deepEqual(agents.skills[1].copies, ['.claude/skills/reviews/SKILL.md']);
+  assert.equal(agents.skills[1].updated, '2026-09-15T23:30:00Z', 'its copy changed last');
   assert.equal(body.warnings.length, 2);
   assert.match(body.warnings[0], /^octo-org\/broken: Commit not found: /);
   assert.match(body.warnings[1], /^octo-org\/Docs: \.github\/skills\/style\/SKILL\.md: malformed front matter: /);
@@ -474,11 +478,57 @@ function organizationAnswer(owner: string, total: number, repositories: [string,
         link: `https://github.com/${owner}/${name}/blob/${EXAMPLE_COMMIT}/skills/s${i}/SKILL.md`,
         copies: [],
         text: '',
+        updated: null,
       })),
     })),
     warnings: [],
   };
 }
+
+test("each skill's day: next to it in the list, `updated <day>` in the selected skill; none when unknown", async (t) => {
+  const skill = (name: string, updated: string | null) => ({
+    id: `octo/dates:.claude/skills/${name}/SKILL.md`,
+    name,
+    description: `Does ${name}.`,
+    summary: `Does ${name}.`,
+    path: `.claude/skills/${name}/SKILL.md`,
+    link: `https://github.com/octo/dates/blob/${EXAMPLE_COMMIT}/.claude/skills/${name}/SKILL.md`,
+    copies: [],
+    text: '',
+    updated,
+  });
+  const answer: ScanAnswer = {
+    repository: { id: 'octo/dates', url: 'https://github.com/octo/dates', commit: EXAMPLE_COMMIT },
+    skills: [skill('dated', '2026-09-15T23:30:00Z'), skill('undated', null)],
+    warnings: [],
+  };
+  const page = await pageAt(t, 'https://github.com/octo/dates', async () => Response.json(answer));
+  await page.scanned();
+  const { document } = page;
+  const rows = [...document.querySelectorAll('#skills li[role="option"]')].map((li) => {
+    const time = li.querySelector('.updated time') as HTMLTimeElement | null;
+    return [li.querySelector('.name')!.textContent, time && [time.textContent, time.dateTime, time.title]];
+  });
+  assert.deepEqual(rows, [
+    ['dated', ['2026-09-15', '2026-09-15T23:30:00Z', 'Last updated 2026-09-15 23:30:00 UTC']],
+    ['undated', null],
+  ]);
+  // The first one is selected: its day under its link.
+  assert.equal(document.querySelector('#skill .updated')!.textContent, 'updated 2026-09-15');
+  (document.querySelectorAll('#skills li[role="option"]')[1] as HTMLElement).click();
+  assert.equal(document.querySelector('#skill h2')!.textContent, 'undated');
+  assert.equal(document.querySelector('#skill .updated'), null);
+});
+
+test('the API: a skill whose day is unknown (a directory outside git) has `updated: null`', async (t) => {
+  const copy = mkdtempSync(join(tmpdir(), 'skill-atlas-plain-'));
+  t.after(() => rmSync(copy, { recursive: true, force: true }));
+  cpSync(FIXTURE, copy, { recursive: true });
+  const { status, body } = await scan(copy);
+  assert.equal(status, 200);
+  assert.equal(body.skills.length, 7);
+  for (const skill of body.skills) assert.equal(skill.updated, null, skill.name);
+});
 
 test("the organization's card: its link, its repositories, the bar full, the top repositories by skill count", async (t) => {
   const page = await pageAt(t, 'https://github.com/octo-org');

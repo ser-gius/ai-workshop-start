@@ -72,6 +72,7 @@ test('JetBrains/MPS · mps-tests: duplicates in .agents and .claude are one skil
       'mps-tests — Run the MPS tests.',
       `  ${blob(id, '.agents/skills/mps-tests/SKILL.md')}`,
       '  also in .claude/skills/mps-tests/SKILL.md',
+      '  updated 2026-11-20',
     ].join('\n'),
   );
 });
@@ -81,7 +82,10 @@ test('JetBrains/android · writing-lint-checks: an unusual folder, agent/skills,
   const path = 'agent/skills/writing-lint-checks/SKILL.md';
   const scanned = await atlasOn(recordRepository(id, { [path]: skill('writing-lint-checks') }), `https://github.com/${id}`);
   assert.equal(scanned.code, 0, scanned.stderr);
-  assert.equal(scanned.stdout, ['JetBrains/android · 1 skill', 'writing-lint-checks — Does a thing.', `  ${blob(id, path)}`].join('\n'));
+  assert.equal(
+    scanned.stdout,
+    ['JetBrains/android · 1 skill', 'writing-lint-checks — Does a thing.', `  ${blob(id, path)}`, '  updated 2026-11-20'].join('\n'),
+  );
 });
 
 test('JetBrains/MPS · mps-aspect-generator: part of the product, in a plugin, is a skill', async () => {
@@ -89,7 +93,10 @@ test('JetBrains/MPS · mps-aspect-generator: part of the product, in a plugin, i
   const path = 'plugins/mcp-tools/resources/META-INF/skills/mps-aspect-generator/SKILL.md';
   const scanned = await atlasOn(recordRepository(id, { [path]: skill('mps-aspect-generator') }), `https://github.com/${id}`);
   assert.equal(scanned.code, 0, scanned.stderr);
-  assert.equal(scanned.stdout, ['JetBrains/MPS · 1 skill', 'mps-aspect-generator — Does a thing.', `  ${blob(id, path)}`].join('\n'));
+  assert.equal(
+    scanned.stdout,
+    ['JetBrains/MPS · 1 skill', 'mps-aspect-generator — Does a thing.', `  ${blob(id, path)}`, '  updated 2026-11-20'].join('\n'),
+  );
 });
 
 test('JetBrains/koog · weather-retrieval: test data is not a skill', async () => {

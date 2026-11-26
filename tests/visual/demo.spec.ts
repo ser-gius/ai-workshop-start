@@ -44,6 +44,8 @@ test('the fonts are the pinned image\'s, as in the baselines', async ({ page }) 
 test('fixture: the local directory, then the filter `use before`', async ({ page }) => {
   await scan(page, FIXTURE_COPY);
   await expect(page.locator('#count')).toHaveText('7 skills');
+  // A copy outside git: no skill has a day.
+  await expect(page.locator('#skills .updated')).toHaveCount(0);
   await expect(page).toHaveScreenshot('fixture.png');
 
   await filter(page, 'use before');
@@ -55,6 +57,10 @@ test('fixture: the local directory, then the filter `use before`', async ({ page
 test('scan: a repository, picking a skill, unfolding a description', async ({ page }) => {
   await scan(page, DEMO_REPOSITORY);
   await expect(skills(page)).toHaveCount(7);
+  // Each skill's day under its name, and the selected one's under its link.
+  await expect(skills(page).locator('.updated')).toHaveCount(7);
+  await expect(skills(page).first().locator('.updated')).toHaveText('2026-04-02');
+  await expect(page.locator('#skill .updated')).toHaveText('updated 2026-04-02');
   await expect(page).toHaveScreenshot('scan.png');
 
   await skills(page).nth(2).click();
