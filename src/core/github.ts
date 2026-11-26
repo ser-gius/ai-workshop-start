@@ -7,20 +7,29 @@ export type Fetch = (url: string, init?: { headers?: Record<string, string> }) =
 
 export type GitHubOptions = {
   fetch: Fetch;
-  /** With a token, skills are found through code search; without it, through the tree. */
+  /**
+   * With a token, the default branch is searched through code search, and a fixed commit's tree
+   * is listed whole; without it, both go through the tree, only the skill roots when it is large.
+   */
   token?: string;
 };
 
 const API = 'https://api.github.com';
 const RAW = 'https://raw.githubusercontent.com';
 
-/** `https://github.com/owner/repo`, with or without the scheme, a trailing slash or `.git`. */
-export function parseGitHubUrl(input: string): { owner: string; repo: string } | undefined {
-  const match = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(input.trim());
-  return match ? { owner: match[1], repo: match[2] } : undefined;
+/**
+ * `https://github.com/owner/repo`, with or without the scheme, a trailing slash or `.git`;
+ * `…/tree/<commit>` pins a commit (or a branch or a tag).
+ */
+export function parseGitHubUrl(input: string): { owner: string; repo: string; ref?: string } | undefined {
+  const match = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:\/tree\/([^\s?#]+?))?\/?$/i.exec(
+    input.trim(),
+  );
+  if (!match) return undefined;
+  return match[3] ? { owner: match[1], repo: match[2], ref: match[3] } : { owner: match[1], repo: match[2] };
 }
 
-/** Resolves the default branch to a commit and lists the files that may be skills. */
+/** Resolves the default branch, or the URL's commit, to a commit and lists the files that may be skills. */
 export async function openGitHub(input: string, options: GitHubOptions): Promise<Source> {
   const name = parseGitHubUrl(input);
   if (!name) throw new AtlasError(`Not a GitHub repository URL: ${input}`);
@@ -30,9 +39,18 @@ export async function openGitHub(input: string, options: GitHubOptions): Promise
     `Repository not found: https://github.com/${name.owner}/${name.repo}`,
   );
   const id = info.full_name;
-  const { sha } = await github.json<{ sha: string }>(`${API}/repos/${id}/commits/${encodePath(info.default_branch)}`);
+  const ref = name.ref ?? info.default_branch;
+  const { sha } = await github.json<{ sha: string }>(
+    `${API}/repos/${id}/commits/${encodePath(ref)}`,
+    `Commit not found: https://github.com/${id}/tree/${ref}`,
+  );
   const warnings: string[] = [];
-  const paths = options.token ? await searchPaths(github, id) : await treePaths(github, id, sha, warnings);
+  // Code search sees only the default branch: a fixed commit is listed through its tree.
+  const paths = !options.token
+    ? await treePaths(github, id, sha, warnings)
+    : name.ref
+      ? await wholeTree(github, id, sha)
+      : await searchPaths(github, id);
   const [organization, repo] = id.split('/');
   return {
     repository: { id, organization, name: repo, url: `https://github.com/${id}`, commit: sha },
@@ -73,6 +91,18 @@ async function treePaths(github: Client, id: string, sha: string, warnings: stri
   return paths;
 }
 
+/** Every file in the tree: at once, or one directory at a time when it is too large for one answer. */
+async function wholeTree(github: Client, id: string, sha: string): Promise<string[]> {
+  const tree = await github.json<Tree>(`${API}/repos/${id}/git/trees/${sha}?recursive=1`);
+  if (!tree.truncated) return files(tree);
+  const top = await github.json<Tree>(`${API}/repos/${id}/git/trees/${sha}`);
+  const directories = top.tree.filter((item) => item.type === 'tree');
+  const below = await Promise.all(
+    directories.map(async (item) => (await wholeTree(github, id, item.sha)).map((path) => `${item.path}/${path}`)),
+  );
+  return [...files(top), ...below.flat()];
+}
+
 /** Walks down one level at a time; the directory's tree, or undefined if it does not exist. */
 async function directory(github: Client, id: string, sha: string, path: string): Promise<string | undefined> {
   let current = sha;
@@ -96,6 +126,8 @@ function client({ fetch, token }: GitHubOptions) {
   const headers: Record<string, string> = { Accept: 'application/vnd.github+json' };
   if (token) headers.Authorization = `Bearer ${token}`;
   const answers = new Map<string, Promise<unknown>>(); // the root tree is asked for once per skill root
+  // GitHub turns away too many API requests at once (a secondary rate limit): a few at a time.
+  const limit = limiter(20);
 
   async function get(url: string, init?: { headers: Record<string, string> }): Promise<Response> {
     try {
@@ -111,7 +143,8 @@ function client({ fetch, token }: GitHubOptions) {
     const body: unknown = await response.json().catch(() => undefined);
     const message = (body as { message?: unknown } | undefined)?.message;
     const text = typeof message === 'string' ? message : '';
-    if (response.status === 404) throw new AtlasError(notFound);
+    // An unknown commit, branch or tag is a 422, not a 404.
+    if (response.status === 404 || (response.status === 422 && /no commit found/i.test(text))) throw new AtlasError(notFound);
     if ((response.status === 403 || response.status === 429) && /rate limit/i.test(text)) {
       throw new AtlasError(`GitHub rate limit reached; ${token ? 'try again in a minute' : 'set GITHUB_TOKEN'}`);
     }
@@ -122,7 +155,7 @@ function client({ fetch, token }: GitHubOptions) {
   return {
     /** A GitHub API answer; `notFound` explains a 404. */
     json<T>(url: string, notFound = `Not found on GitHub: ${url}`): Promise<T> {
-      if (!answers.has(url)) answers.set(url, request(url, notFound));
+      if (!answers.has(url)) answers.set(url, limit(() => request(url, notFound)));
       return answers.get(url) as Promise<T>;
     },
     /** A file's bytes at the scanned commit, or undefined if it is not there. */
@@ -132,6 +165,24 @@ function client({ fetch, token }: GitHubOptions) {
       if (!response.ok) throw new AtlasError(`GitHub answered ${response.status} for ${url}`);
       return new Uint8Array(await response.arrayBuffer());
     },
+  };
+}
+
+/** Runs at most `size` tasks at a time; the rest wait their turn. */
+function limiter(size: number) {
+  let running = 0;
+  const waiting: (() => void)[] = [];
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    // A finished task hands its turn straight to the next one waiting.
+    if (running < size) running++;
+    else await new Promise<void>((resolve) => waiting.push(resolve));
+    try {
+      return await task();
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else running--;
+    }
   };
 }
 

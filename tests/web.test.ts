@@ -50,7 +50,11 @@ test('a local directory: every skill sorted by name, its SKILL.md as it is, and 
   const { status, body } = await scan(FIXTURE);
   assert.equal(status, 200);
   assert.equal(body.repository.id, 'fixture');
-  assert.deepEqual(body.skills.map((skill) => skill.name), ['code-style', 'commits', 'release-checklist']);
+  assert.deepEqual(
+    body.skills.map((skill) => skill.name),
+    ['aspect-generator', 'code-style', 'commits', 'lint-checks', 'release-checklist', 'reviews', 'run-tests'],
+  );
+  assert.deepEqual(body.skills.find((skill) => skill.name === 'reviews')?.copies, ['.claude/skills/reviews/SKILL.md']);
   for (const skill of body.skills) {
     assert.equal(skill.text, readFileSync(join(FIXTURE, skill.path), 'utf8'));
     assert.equal(skill.link, `${pathToFileURL(FIXTURE).href}/${skill.path}`);
@@ -88,7 +92,7 @@ test('./skill-atlas serve prints its local URL and answers there', async (t) => 
   const match = /^Skill Atlas at (http:\/\/127\.0\.0\.1:\d+\/)\n$/.exec(printed);
   assert.ok(match, printed);
   const answer = (await (await fetch(`${match[1]}api/scan?repo=${encodeURIComponent(FIXTURE)}`)).json()) as ScanAnswer;
-  assert.equal(answer.skills.length, 3);
+  assert.equal(answer.skills.length, 7);
 });
 
 test('./skill-atlas serve with a wrong argument → usage, exit code 1', () => {

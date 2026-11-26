@@ -16,7 +16,8 @@ build-tools-bump-gradle-api — Bumps the Gradle API version that Kotlin Gradle 
 `./skill-atlas serve` opens a local web view at http://127.0.0.1:4173/: a field for a repository
 link (or a local directory), its skills, and each one's SKILL.md.
 
-Set `GITHUB_TOKEN` for a higher GitHub rate limit. `npm test` runs the tests.
+`github.com/<owner>/<repo>/tree/<commit>` scans the repository at that commit. Set `GITHUB_TOKEN` for a
+higher GitHub rate limit. `npm test` runs the tests; `npm run test:e2e` runs them on real repositories.
 
 - [spec/](spec/): what it does. [AGENTS.md](AGENTS.md): the definition of done.
 - [fixture/](fixture/README.md): a small repository for the tests.
