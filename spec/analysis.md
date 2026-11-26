@@ -15,6 +15,7 @@ Skill: id = `repo:path`, name, description, commit
 - Unknown commit → a clear message, exit code 1
 - Malformed front matter → a *warning*, the scan goes on
 - Unreachable repository → a clear message, exit code 1
+- A **private** repository, with a `GITHUB_TOKEN` that can read it: listed *and read* with the token
 
 ## What is a project skill?
 `<root>/<name>/SKILL.md`, where `<root>` is a folder named `skills`:

@@ -1,7 +1,7 @@
 // The skill-atlas commands. The same code serves the Node CLI and the browser
 // terminal: everything that differs between them comes in through the context.
 import { AtlasError } from './core/errors.ts';
-import { skillLink, type Repository, type Skill } from './core/model.ts';
+import { firstSentence, skillLink, type Repository, type Skill } from './core/model.ts';
 import { scan, type Source } from './core/scan.ts';
 
 export type Context = {
@@ -10,20 +10,28 @@ export type Context = {
   print(text: string): void;
   /** Errors and warnings. */
   error(text: string): void;
+  /** Help lines for the commands only this client runs, such as the Node CLI's `serve`. */
+  commands?: string[];
 };
 
-const usage = `Usage: skill-atlas <command>
-
-  scan <GitHub URL | directory>   find every SKILL.md in a repository and print it
-  help                            show this help`;
+/** The help: the shared commands, then the client's own, so it lists only what runs here. */
+function usage({ commands = [] }: Context): string {
+  return [
+    'Usage: skill-atlas <command>',
+    '',
+    '  scan <GitHub URL | directory>   find every SKILL.md in a repository and print it',
+    ...commands.map((line) => `  ${line}`),
+    '  help                            show this help',
+  ].join('\n');
+}
 
 /** Runs one command; returns its exit code. */
 export async function run(args: string[], context: Context): Promise<number> {
   const [command = 'help', ...rest] = args;
   try {
     if (command === 'scan') await scanCommand(rest, context);
-    else if (command === 'help') context.print(usage);
-    else throw new AtlasError(`Unknown command: ${command}\n\n${usage}`);
+    else if (command === 'help') context.print(usage(context));
+    else throw new AtlasError(`Unknown command: ${command}\n\n${usage(context)}`);
     return 0;
   } catch (error) {
     if (!(error instanceof AtlasError)) throw error;
@@ -47,9 +55,4 @@ function printRepository(repository: Repository, skills: Skill[], { print }: Con
     print(`  ${skillLink(repository, skill)}`);
     if (skill.copies.length > 0) print(`  also in ${skill.copies.join(', ')}`);
   }
-}
-
-function firstSentence(text: string): string {
-  const line = text.replace(/\s+/g, ' ').trim();
-  return /^.*?[.!?](?=\s|$)/.exec(line)?.[0] ?? line;
 }

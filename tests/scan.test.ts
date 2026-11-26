@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { openGitHub } from '../src/core/github.ts';
 import { parseSkill } from '../src/core/parse.ts';
+import { scan } from '../src/core/scan.ts';
 import { replay } from '../src/core/replay.ts';
 import { atlas, CLI, EXAMPLE_COMMIT, FIXTURE } from './helpers.ts';
 
@@ -100,4 +101,30 @@ test('rate limit → a message that asks for GITHUB_TOKEN', async () => {
   await assert.rejects(openGitHub('https://github.com/JetBrains/MPS', { fetch: limited }), {
     message: 'GitHub rate limit reached; set GITHUB_TOKEN',
   });
+});
+
+test('a private repository: with GITHUB_TOKEN, its SKILL.md files are read with the token too', async () => {
+  // What GitHub answers for a private repository: raw files are a 404 without the token.
+  const commit = '0123456789abcdef0123456789abcdef01234567';
+  const recorded = replay({
+    'https://api.github.com/repos/JetBrains/private': { status: 200, body: { full_name: 'JetBrains/private', default_branch: 'main' } },
+    'https://api.github.com/repos/JetBrains/private/commits/main': { status: 200, body: { sha: commit } },
+    'https://api.github.com/search/code?q=filename:SKILL.md+repo:JetBrains/private&per_page=100&page=1': {
+      status: 200,
+      body: { total_count: 1, items: [{ path: '.claude/skills/secret/SKILL.md' }] },
+    },
+  });
+  const raw = `https://raw.githubusercontent.com/JetBrains/private/${commit}/.claude/skills/secret/SKILL.md`;
+  const github = (token: string) =>
+    openGitHub('https://github.com/JetBrains/private', {
+      token,
+      fetch: async (url, init) => {
+        if (url !== raw) return recorded(url, init);
+        const authorized = init?.headers?.Authorization === `Bearer ${token}`;
+        return authorized ? new Response('---\nname: secret\ndescription: Private.\n---\n') : new Response('404: Not Found', { status: 404 });
+      },
+    });
+  const result = await scan(await github('test'));
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.skills.map((skill) => [skill.name, skill.description]), [['secret', 'Private.']]);
 });

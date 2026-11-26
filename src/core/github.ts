@@ -60,6 +60,35 @@ export async function openGitHub(input: string, options: GitHubOptions): Promise
   };
 }
 
+/** One of the user's repositories, as the web view suggests it. */
+export type UserRepository = { full_name: string; url: string; description: string };
+
+/** The user's repositories and, without a token, a hint instead. */
+export type UserRepositories = { repositories: UserRepository[]; hint?: string };
+
+/** At most this many pages of 100: enough to suggest, few requests. */
+const REPOSITORY_PAGES = 3;
+
+/**
+ * The token's user's repositories, most recently pushed first, 100 a page. Without a token there
+ * is no user: no repositories, and a hint. A GitHub failure is an AtlasError, as elsewhere.
+ */
+export async function userRepositories(options: GitHubOptions): Promise<UserRepositories> {
+  if (!options.token) return { repositories: [], hint: 'Set GITHUB_TOKEN to see your repositories' };
+  const github = client(options);
+  const repositories: UserRepository[] = [];
+  for (let page = 1; page <= REPOSITORY_PAGES; page++) {
+    const items = await github.json<{ full_name: string; description: string | null }[]>(
+      `${API}/user/repos?sort=pushed&per_page=100&page=${page}`,
+    );
+    for (const item of items) {
+      repositories.push({ full_name: item.full_name, url: `https://github.com/${item.full_name}`, description: item.description ?? '' });
+    }
+    if (items.length < 100) break;
+  }
+  return { repositories };
+}
+
 /** Code search looks at the whole default branch, 100 results a page. */
 async function searchPaths(github: Client, id: string): Promise<string[]> {
   const paths = new Set<string>(); // pages can repeat a result
@@ -158,9 +187,12 @@ function client({ fetch, token }: GitHubOptions) {
       if (!answers.has(url)) answers.set(url, limit(() => request(url, notFound)));
       return answers.get(url) as Promise<T>;
     },
-    /** A file's bytes at the scanned commit, or undefined if it is not there. */
+    /**
+     * A file's bytes at the scanned commit, or undefined if it is not there. With the token: a private
+     * repository's files are a 404 without it, though code search, with it, lists them.
+     */
     async raw(url: string): Promise<Uint8Array | undefined> {
-      const response = await get(url);
+      const response = await get(url, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
       if (response.status === 404) return undefined;
       if (!response.ok) throw new AtlasError(`GitHub answered ${response.status} for ${url}`);
       return new Uint8Array(await response.arrayBuffer());
