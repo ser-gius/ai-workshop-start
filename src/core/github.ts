@@ -264,7 +264,7 @@ function client({ fetch, token }: GitHubOptions) {
     }
   }
 
-  async function request(url: string, notFound: string): Promise<unknown> {
+  async function request(url: string, notFound: string, attempt = 1): Promise<unknown> {
     const response = await get(url, { headers });
     if (response.ok) return response.json();
     const body: unknown = await response.json().catch(() => undefined);
@@ -276,7 +276,13 @@ function client({ fetch, token }: GitHubOptions) {
       const id = /\/repos\/([^/]+\/[^/]+)\//.exec(url)?.[1];
       throw new EmptyRepositoryError(`Repository is empty: https://github.com/${id}`);
     }
-    if ((response.status === 403 || response.status === 429) && /rate limit/i.test(text)) {
+    if (response.status === 429 || (response.status === 403 && (/rate limit/i.test(text) || response.headers.has('retry-after')))) {
+      // A short wait, as GitHub asks for it, is worth it: code search allows only 10 requests a minute.
+      const wait = retryAfter(response, text);
+      if (wait !== undefined && wait <= RETRY_WAIT && attempt < RETRY_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+        return request(url, notFound, attempt + 1);
+      }
       throw stop(`GitHub rate limit reached; ${token ? 'try again in a minute' : 'set GITHUB_TOKEN'}`);
     }
     if (response.status === 401) throw stop('GitHub rejected the token in GITHUB_TOKEN');
@@ -300,6 +306,28 @@ function client({ fetch, token }: GitHubOptions) {
       return new Uint8Array(await response.arrayBuffer());
     },
   };
+}
+
+/** A rate limit that lifts within this many milliseconds is waited for; a longer one stops the scan. */
+const RETRY_WAIT = 60_000;
+/** Each request at most this many times: the first, and two after a wait. */
+const RETRY_ATTEMPTS = 3;
+
+/**
+ * How long GitHub asks to wait, in milliseconds, with a little margin: its `Retry-After`, the
+ * "try again in 13.7s" of a code search, or until the reset of a used-up limit. Undefined if it does not say.
+ */
+function retryAfter(response: Response, text: string): number | undefined {
+  const margin = 500;
+  const header = response.headers.get('retry-after');
+  if (header && /^\d+$/.test(header)) return Number(header) * 1000 + margin;
+  const said = /try again in ([\d.]+)\s*s/i.exec(text);
+  if (said) return Number(said[1]) * 1000 + margin;
+  const reset = response.headers.get('x-ratelimit-reset');
+  if (response.headers.get('x-ratelimit-remaining') === '0' && reset && /^\d+$/.test(reset)) {
+    return Math.max(0, Number(reset) * 1000 - Date.now()) + margin;
+  }
+  return undefined;
 }
 
 /** Runs at most `size` tasks at a time; the rest wait their turn. */

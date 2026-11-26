@@ -15,6 +15,8 @@ Skill: id = `repo:path`, name, description, commit
 - Unknown commit → a clear message, exit code 1
 - Malformed front matter → a *warning*, the scan goes on
 - Unreachable repository → a clear message, exit code 1
+- GitHub's rate limit, when it says to wait *a minute* or less (code search: 10 requests a minute) →
+  wait, then ask again, twice at most; a longer wait → `GitHub rate limit reached`, exit code 1
 - A **private** repository, with a `GITHUB_TOKEN` that can read it: listed *and read* with the token
 - An empty repository (no commit yet) → `Repository is empty: <URL>`, exit code 1
 

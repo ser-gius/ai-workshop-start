@@ -175,6 +175,45 @@ test('the rate limit, a rejected token or GitHub unreachable in one repository �
   assert.match(unreachable.stderr, /^Cannot reach GitHub: not recorded: https:\/\/api\.github\.com\/repos\/octo-org\/tools\/commits\/trunk$/);
 });
 
+test("GitHub's rate limit with a short wait → waits as it asks, then asks again", async () => {
+  const search = searchUrl('org:octo-org', 1);
+  const recorded = replay(ORGANIZATION);
+  // What GitHub answers to too many code searches in a minute, then a secondary rate limit.
+  const limits = [
+    () => Response.json({ message: 'try again in 0.01s' }, { status: 429 }),
+    () => Response.json({ message: 'You have exceeded a secondary rate limit.' }, { status: 403, headers: { 'Retry-After': '0' } }),
+  ];
+  let searched = 0;
+  const fetch: Fetch = async (url, init) => (url === search && searched < limits.length ? limits[searched++]() : recorded(url, init));
+  const source = await openOrganization('github.com/octo-org', { fetch, token: 'test' });
+  assert.equal(searched, 2);
+  assert.equal(source.sources.length, 4);
+});
+
+test("GitHub's rate limit: a wait over a minute, no wait given, or still limited after two waits → the scan stops", async () => {
+  const limitedWith = (answer: () => Response) => {
+    let asked = 0;
+    const recorded = replay(ORGANIZATION);
+    const fetch: Fetch = async (url, init) => (url === searchUrl('org:octo-org', 1) ? (asked++, answer()) : recorded(url, init));
+    return { scan: openOrganization('github.com/octo-org', { fetch, token: 'test' }), asked: () => asked };
+  };
+  const message = { message: 'GitHub rate limit reached; try again in a minute' };
+  const hour = limitedWith(() =>
+    Response.json(
+      { message: 'API rate limit exceeded for user ID 1.' },
+      { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 3600) } },
+    ),
+  );
+  await assert.rejects(hour.scan, message);
+  assert.equal(hour.asked(), 1, 'an hour is not waited for');
+  const silent = limitedWith(() => Response.json({ message: 'Too many requests' }, { status: 429 }));
+  await assert.rejects(silent.scan, message);
+  assert.equal(silent.asked(), 1);
+  const still = limitedWith(() => Response.json({ message: 'try again in 0.01s' }, { status: 429 }));
+  await assert.rejects(still.scan, message);
+  assert.equal(still.asked(), 3, 'the first time and two after a wait');
+});
+
 test('once GitHub turns the scan away, no further request is sent', async () => {
   const asked: string[] = [];
   const recorded = replay({
