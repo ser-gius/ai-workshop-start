@@ -96,6 +96,31 @@ test("GitHub: the rate limit on a folder's history stops the scan, as anywhere e
   });
 });
 
+test("GitHub: a rejected token on a folder's history stops the scan, as anywhere else", async () => {
+  const id = 'octo/rejected';
+  const recording: Recording = {
+    ...recordRepository(id, { '.claude/skills/x/SKILL.md': skillMd('x') }),
+    [historyUrl(id, '.claude/skills/x')]: { status: 401, body: { message: 'Bad credentials' } },
+  };
+  assert.deepEqual(await atlasOn(recording, `https://github.com/${id}`), {
+    code: 1,
+    stdout: '',
+    stderr: 'GitHub rejected the token in GITHUB_TOKEN',
+  });
+});
+
+test("GitHub unreachable for a folder's history stops the scan, as anywhere else", async () => {
+  const id = 'octo/unreachable';
+  // The history left out of the recording: asking for it fails as a network error does.
+  const recording = recordRepository(id, { '.claude/skills/x/SKILL.md': skillMd('x') });
+  delete recording[historyUrl(id, '.claude/skills/x')];
+  assert.deepEqual(await atlasOn(recording, `https://github.com/${id}`), {
+    code: 1,
+    stdout: '',
+    stderr: `Cannot reach GitHub: not recorded: ${historyUrl(id, '.claude/skills/x')}`,
+  });
+});
+
 test('GitHub without a token (the browser terminal too): no history is asked, no day, no warning', async () => {
   const id = 'octo/tokenless';
   const tree = `https://api.github.com/repos/${id}/git/trees/${EXAMPLE_COMMIT}?recursive=1`;
