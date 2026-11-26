@@ -61,9 +61,12 @@ test('descriptions are trimmed to their first sentence and foldable to the whole
 
   const page = await (await fetch(url)).text();
   assert.match(page, /el\('details', 'description'\)/, 'a fold when there is more');
-  assert.match(page, /el\('summary', '', skill\.summary\)/, 'folded: the first sentence');
-  assert.match(page, /el\('div', 'whole', skill\.description\)/, 'unfolded: the whole description');
-  assert.match(page, /-webkit-line-clamp: 2/, 'at most two lines on screen');
+  assert.match(page, /el\('span', 'clamp', skill\.summary\)/, 'folded: the first sentence');
+  assert.match(page, /el\('div', 'whole', text\)/, 'unfolded: the whole description');
+  assert.match(page, /#skills \.description \.clamp \{[^}]*-webkit-line-clamp: 2/, 'every description, folded or not: two lines');
+  assert.match(page, /scrollHeight > short\.clientHeight/, 'a sentence cut at two lines folds too');
+  assert.match(page, /summary::before \{ content: '▸'; \}/, 'a marker shows that it unfolds');
+  assert.match(page, /\.whole::before \{ content: '▾ '; \}/, 'and that it folds');
   assert.match(page, /event\.stopPropagation\(\)/, 'folding does not select the skill');
 });
 

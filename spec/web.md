@@ -6,8 +6,9 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 ## Page
 - A **field** for a repository link: a GitHub URL, or a local directory
 - The repository and its skill count, then **every skill**: name and description, sorted by name
-- A description is **trimmed** to its first sentence, on one line (at most two lines on screen);
-  when there is more, it is **foldable**: a click unfolds the whole description, another folds it.
+- A description is **trimmed** to its first sentence, on one line, at most *two lines* on screen
+  (a long sentence too); when there is more (a second sentence, or a sentence cut at two lines), it is
+  **foldable**: `▸` shows it, a click unfolds the whole description (`▾`), another folds it.
   Folding does not change the selected skill
 - A selected skill (the first one at first): its name, link, `also in <paths>`, and its **SKILL.md** as it is
 - **Suggestions** in the field: the user's GitHub repositories; picking one fills in its URL

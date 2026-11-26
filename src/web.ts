@@ -129,10 +129,15 @@ const PAGE = `<!doctype html>
   #skills li[aria-selected="true"] { background: #4a7cf022; }
   #skills .name { font-weight: 600; }
   #skills .description { color: var(--muted); font-size: 13px; }
-  #skills details.description summary { cursor: pointer; }
-  #skills details.description summary::marker { color: var(--accent); }
+  /* At most two lines, folded or not; the fold's own marker shows that it unfolds. */
+  #skills .description .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  #skills details.description summary { display: flex; gap: 4px; cursor: pointer; list-style: none; }
+  #skills details.description summary::-webkit-details-marker { display: none; }
+  #skills details.description summary::before, #skills details.description .whole::before { color: var(--accent); flex: none; }
+  #skills details.description summary::before { content: '▸'; }
+  #skills details.description .whole::before { content: '▾ '; }
+  #skills details.description .whole { cursor: pointer; }
   #skills details.description[open] summary { display: none; }
-  #skills details.description:not([open]) summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   #skill { padding: 16px 20px; overflow: auto; }
   #skill h2 { margin: 0 0 4px; font-size: 17px; }
   #skill a { color: var(--accent); word-break: break-all; font-size: 13px; }
@@ -165,13 +170,27 @@ const el = (tag, className, text) => {
   return node;
 };
 
-// The first sentence; when there is more, a fold that opens to the whole description.
+// The first sentence, at most two lines; when there is more, a fold that opens to the whole description.
 function description(skill) {
-  if (skill.summary === skill.description) return el('div', 'description', skill.description);
+  const short = el('span', 'clamp', skill.summary);
+  if (skill.summary !== skill.description) return fold(short, skill.description);
+  const plain = el('div', 'description');
+  plain.append(short);
+  return plain;
+}
+
+// One sentence that is longer than its two lines folds too, once it is on screen and measured.
+function foldIfClamped(item, skill) {
+  const short = item.querySelector('div.description > .clamp');
+  if (short && short.scrollHeight > short.clientHeight + 1) short.parentElement.replaceWith(fold(short, skill.description));
+}
+
+function fold(short, text) {
   const fold = el('details', 'description');
-  const summary = el('summary', '', skill.summary);
+  const summary = el('summary');
   summary.title = 'Show the whole description';
-  const whole = el('div', 'whole', skill.description);
+  summary.append(short);
+  const whole = el('div', 'whole', text);
   whole.title = 'Fold';
   whole.addEventListener('click', (event) => { event.stopPropagation(); fold.open = false; });
   summary.addEventListener('click', (event) => event.stopPropagation());
@@ -213,6 +232,7 @@ async function scan(repo) {
       if (skill.description) item.append(description(skill));
       item.addEventListener('click', () => show(skill, item));
       $('skills').append(item);
+      foldIfClamped(item, skill);
     }
     if (count) show(answer.skills[0], $('skills').firstElementChild);
   } catch (error) {
