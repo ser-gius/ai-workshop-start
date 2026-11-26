@@ -21,3 +21,4 @@ higher GitHub rate limit. `npm test` runs the tests; `npm run test:e2e` runs the
 
 - [spec/](spec/): what it does. [AGENTS.md](AGENTS.md): the definition of done.
 - [fixture/](fixture/README.md): a small repository for the tests.
+- [qa/](qa/README.md): manual test scripts, each case with its steps and what a tester should see.
