@@ -32,7 +32,7 @@ its *committer* date, in UTC (`2026-03-01T01:00:00+02:00` → `2026-02-28T23:00:
   would not last: JetBrains/MPS has 86 folders); the browser terminal has none
 - A local directory: `git log` in the git repository it is in (it may be below the root); changes not committed
   yet do not count
-- No commit touched it (a local skill not committed yet), or a directory outside git → *no date*, no warning
+- No commit touched it (a local skill not committed yet, or a repository with no commit at all), or a directory outside git → *no date*, no warning
 - A **shallow clone** whose history stops before the skill's last change (the commit found is where it stops,
   and adds every file) → *no date*, no warning
 - A folder's history that fails (GitHub's answer, or git's: a repository git refuses or cannot read) → a *warning*

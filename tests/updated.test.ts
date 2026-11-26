@@ -214,6 +214,14 @@ test('a local directory in git: a skill not committed yet has no day', async (t)
   assert.deepEqual(skills.map((skill) => [skill.name, skill.updated]), [['new', undefined], ['old', '2026-01-02T03:04:05Z']]);
 });
 
+test('a local git repository with no commit yet: no day, no warning', async (t) => {
+  const repo = repository(t); // `git init` only: its branch has no commit, so `git log` fails
+  repo.write('.claude/skills/x/SKILL.md', skillMd('x'));
+  const { skills, warnings } = await scan(await openDirectory(repo.root));
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(skills.map((skill) => [skill.name, skill.updated]), [['x', undefined]]);
+});
+
 test('a local directory in git, below its root: paths are its own, the history the repository’s', async (t) => {
   const repo = repository(t);
   repo.write('packages/app/.claude/skills/build/SKILL.md', skillMd('build'));
