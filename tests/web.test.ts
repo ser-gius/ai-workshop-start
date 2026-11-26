@@ -418,7 +418,7 @@ test('an organization: its repositories with skills, grouped, each skill with it
  * The page in jsdom, at `?repo=<repo>`: it scans at once. Its requests go to the test server, or to
  * `answer` for /api/scan when given; `release` lets a held answer through.
  */
-function pageAt(t: TestContext, repo: string, answer?: () => Promise<Response>) {
+function pageAt(t: TestContext, repo: string, answer?: () => Promise<Response>, layout?: (window: JSDOM['window']) => void) {
   return (async () => {
     const html = await (await fetch(url)).text();
     const dom = new JSDOM(html, {
@@ -429,6 +429,7 @@ function pageAt(t: TestContext, repo: string, answer?: () => Promise<Response>) 
           const asked = new URL(String(path), url);
           return asked.pathname === '/api/scan' && answer ? answer() : fetch(asked);
         };
+        layout?.(window);
       },
     });
     t.after(() => dom.window.close());
@@ -812,4 +813,21 @@ test('no skill selected: the SKILL.md view says how to read one', async (t) => {
   page.type('');
   assert.equal(page.selected(), 'aspect-generator');
   assert.equal(page.placeholder(), null, 'a skill selected: its SKILL.md instead');
+});
+
+test('a sentence cut at two lines folds: the skills are on screen when it is measured', async (t) => {
+  // jsdom has no layout: a description's clamp is three lines high while on screen, nothing while hidden.
+  const layout = (window: JSDOM['window']) => {
+    const offScreen = (node: Element) => !!node.closest('[hidden]');
+    Object.defineProperty(window.HTMLElement.prototype, 'scrollHeight', { get(this: Element) { return offScreen(this) ? 0 : 60; } });
+    Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { get(this: Element) { return offScreen(this) ? 0 : 40; } });
+  };
+  const sentence = 'One long sentence that runs on past the two lines of the list without a single stop.';
+  const answer = organizationAnswer('octo', 1, [['long', 1]]);
+  Object.assign(answer.repositories[0].skills[0], { description: sentence, summary: sentence });
+  const page = await pageAt(t, 'github.com/octo', async () => Response.json(answer), layout);
+  await page.scanned();
+  const item = page.document.querySelector('#skills li[role="option"]')!;
+  assert.ok(item.querySelector('details.description'), 'one sentence, cut at two lines: a fold');
+  assert.equal(item.querySelector('details.description .whole')!.textContent, sentence);
 });

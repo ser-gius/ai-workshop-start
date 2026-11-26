@@ -550,6 +550,8 @@ async function scan(repo) {
     const response = await fetch('/api/scan?repo=' + encodeURIComponent(repo));
     const answer = await response.json();
     if (!response.ok) throw new Error(answer.error);
+    // Shown before the skills are listed: a description is measured, to fold, only on screen.
+    $('results').hidden = false;
     for (const warning of answer.warnings) $('warnings').append(el('li', '', warning));
     if (answer.organization) {
       organizationScanned(answer);
@@ -574,7 +576,6 @@ async function scan(repo) {
       scanned = { id: answer.repository.id, entries: [], groups: [], summary: answer.repository.id + ' · ' + count(answer.skills.length, 'skill') };
       list(answer.skills, null);
     }
-    $('results').hidden = false;
     applyFilter();
   } catch (error) {
     $('organization').hidden = true;
