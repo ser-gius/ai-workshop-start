@@ -39,3 +39,31 @@ export async function atlas(args: string[]) {
   });
   return { code, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
 }
+
+/** What GitHub answers, through code search, for a repository with these SKILL.md files at EXAMPLE_COMMIT. */
+export function recordRepository(id: string, files: Record<string, string>): Recording {
+  const recording: Recording = {
+    [`https://api.github.com/repos/${id}`]: { status: 200, body: { full_name: id, default_branch: 'main' } },
+    [`https://api.github.com/repos/${id}/commits/main`]: { status: 200, body: { sha: EXAMPLE_COMMIT } },
+    [`https://api.github.com/search/code?q=filename:SKILL.md+repo:${id}&per_page=100&page=1`]: {
+      status: 200,
+      body: { total_count: Object.keys(files).length, items: Object.keys(files).map((path) => ({ path })) },
+    },
+  };
+  for (const [path, body] of Object.entries(files)) {
+    recording[`https://raw.githubusercontent.com/${id}/${EXAMPLE_COMMIT}/${path}`] = { status: 200, body };
+  }
+  return recording;
+}
+
+/** `skill-atlas scan <url>`, with GitHub answering from the recording. */
+export async function atlasOn(recording: Recording, url: string) {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const code = await run(['scan', url], {
+    open: (input) => openGitHub(input, { fetch: replay(recording), token: 'test' }),
+    print: (text) => stdout.push(text),
+    error: (text) => stderr.push(text),
+  });
+  return { code, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
+}

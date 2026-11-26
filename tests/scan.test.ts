@@ -1,6 +1,6 @@
 // The decisions in spec/analysis.md and spec/cli.md, checked on what the real command prints for
 // ./fixture and for a small GitHub repository answered in tests/helpers.ts. The edge cases of
-// where skills live are yours to add.
+// where skills live are in tests/find.test.ts.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -44,13 +44,22 @@ test('./fixture: every skill, sorted by name, linked to its file, with a warning
   assert.equal(
     fixture.stdout,
     [
-      'fixture · 3 skills',
+      'fixture · 7 skills',
+      'aspect-generator — Generate a language aspect.',
+      `  ${root}/plugins/mcp-tools/resources/skills/aspect-generator/SKILL.md`,
       "code-style — Follow the project's code style.",
       `  ${root}/.github/skills/code-style/SKILL.md`,
       'commits — Write commit messages the way this repository does.',
       `  ${root}/.claude/skills/commits/SKILL.md`,
+      'lint-checks — Write a lint check for this repository.',
+      `  ${root}/agent/skills/lint-checks/SKILL.md`,
       'release-checklist',
       `  ${root}/.agents/skills/release-checklist/SKILL.md`,
+      'reviews — Review a change the way this repository does.',
+      `  ${root}/.agents/skills/reviews/SKILL.md`,
+      '  also in .claude/skills/reviews/SKILL.md',
+      "run-tests — Run the project's tests.",
+      `  ${root}/.claude/skills/run-tests/SKILL.md`,
     ].join('\n'),
   );
   assert.match(fixture.stderr, /^warning: \.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
