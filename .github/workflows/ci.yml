@@ -25,6 +25,14 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # What this run's token may still ask of GitHub: an end-to-end failure on a rate limit shows here.
+      # Asking for the limits counts against none of them.
+      - name: GitHub limits
+        run: >-
+          curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/rate_limit
+          | jq -c '.resources | {core, search, code_search}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # The real CLI on real repositories at fixed commits; the token lists their large trees.
       - name: End-to-end tests
         run: npm run test:e2e
