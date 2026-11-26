@@ -84,8 +84,7 @@ gh api repos/{owner}/{repo}/pulls/<pr>/comments
 ```
 
 - CI turned red: read the log, fix, push, as in step 7.
-- New review comments: address each one in a commit, or answer it if you disagree;
-  ask the user before replying when unsure.
+- New review comments: run the [address-review](../address-review/SKILL.md) skill on the PR.
 - Conflicts with `main`: rebase onto an up-to-date `main`, rerun step 5, push.
 - Merged or closed: stop checking and tell the user.
 Report only what changed since the last check; stay quiet when nothing did.
