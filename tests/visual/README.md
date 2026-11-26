@@ -7,7 +7,8 @@ pixel for pixel. Every run is recorded: a video per test, in `test-results/` (an
 What keeps them deterministic:
 - **Data**: GitHub answers from [github.json.gz](github.json.gz), recorded once by
   [record-github.ts](record-github.ts) for `JetBrains/kotlin` and the `JetBrains` organization, public
-  repositories only; a request it did not record fails the scan. The fixture is copied to a fixed path,
+  repositories only, paged again as GitHub pages them for the public; a request it did not record fails the scan.
+  `npm test` checks it is complete ([visual-recording.test.ts](../visual-recording.test.ts)). The fixture is copied to a fixed path,
   `/tmp/skill-atlas-visual/fixture`, since a local directory shows its path. The suggestions are fixed.
   [server.ts](server.ts) serves the page with them.
 - **Browser and fonts**: the Playwright image, pinned by digest (Liberation Sans and Mono, which the page's
