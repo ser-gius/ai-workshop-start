@@ -219,6 +219,15 @@ const PAGE = `<!doctype html>
   button.pill { cursor: pointer; }
   button.pill:disabled { opacity: .6; cursor: wait; }
   header.card { margin-bottom: 24px; }
+  /* The header on one row: the name, the field, and what was scanned. */
+  .header-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+  .header-row h1 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
+  .header-row #form { flex: 1 1 360px; }
+  .header-row #status { margin-top: 0; font-family: var(--mono); white-space: nowrap; }
+  .header-row #status.error { font-family: var(--sans); white-space: normal; }
+  /* The skills and their filter: only once a scan has answered. */
+  main[hidden] { display: none; }
+  #skill .placeholder { margin: 0; color: var(--muted); font-size: 17px; }
   #suggestions { margin-top: 6px; color: var(--muted); font-size: 12px; }
   #suggestions:empty { display: none; }
   #status { margin-top: 10px; color: var(--muted); min-height: 1.4em; }
@@ -280,18 +289,17 @@ const PAGE = `<!doctype html>
 </head>
 <body>
 <header class="card">
-  <div class="card-title">
-    <span class="tile"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
-    <h1>Skill Atlas</h1>
-  </div>
+  <div class="header-row">
+  <h1>Skill Atlas</h1>
   <form id="form" class="field">
     <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-    <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo, or https://github.com/owner" aria-label="Repository link" list="repositories" autocomplete="off" autofocus>
+    <input id="repo" name="repo" type="text" placeholder="A GitHub link or a local directory" aria-label="Repository link" list="repositories" autocomplete="off" autofocus>
     <datalist id="repositories"></datalist>
     <button id="scan" class="pill" type="submit">Scan</button>
   </form>
+  <div id="status" aria-live="polite"></div>
+  </div>
   <div id="suggestions"></div>
-  <div id="status"></div>
   <ul id="warnings"></ul>
 </header>
 <section id="organization" class="card" aria-label="Organization" hidden>
@@ -304,7 +312,7 @@ const PAGE = `<!doctype html>
     <div id="org-more" class="more"></div>
   </div>
 </section>
-<main>
+<main id="results" hidden>
   <section id="list" class="card">
     <div class="card-title">
       <span class="tile"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg></span>
@@ -380,6 +388,13 @@ function fold(short, text) {
   summary.addEventListener('click', (event) => event.stopPropagation());
   fold.append(summary, whole);
   return fold;
+}
+
+// No skill selected: the view says how to read one.
+function nothingSelected() {
+  selected = null;
+  for (const item of $('skills').querySelectorAll('li[role="option"]')) item.setAttribute('aria-selected', 'false');
+  $('skill').replaceChildren(el('p', 'placeholder', 'Select a skill to read its SKILL.md.'));
 }
 
 function show(skill, item) {
@@ -498,9 +513,7 @@ function applyFilter() {
   $('status').textContent = shown === total ? scanned.summary : scanned.id + ' · ' + shown + ' of ' + count(total, 'skill');
   $('no-match').textContent = total && !shown ? 'No skills match "' + filter.trim() + '"' : '';
   if (!shown) {
-    selected = null;
-    for (const item of $('skills').querySelectorAll('li[role="option"]')) item.setAttribute('aria-selected', 'false');
-    $('skill').replaceChildren();
+    nothingSelected();
   } else if (!selected || selected.item.hidden) {
     const first = scanned.entries.find(({ item }) => !item.hidden);
     show(first.skill, first.item);
@@ -532,10 +545,13 @@ async function scan(repo) {
   $('warnings').replaceChildren();
   $('skills').replaceChildren();
   $('skill').replaceChildren();
+  $('results').hidden = true;
   try {
     const response = await fetch('/api/scan?repo=' + encodeURIComponent(repo));
     const answer = await response.json();
     if (!response.ok) throw new Error(answer.error);
+    // Shown before the skills are listed: a description is measured, to fold, only on screen.
+    $('results').hidden = false;
     for (const warning of answer.warnings) $('warnings').append(el('li', '', warning));
     if (answer.organization) {
       organizationScanned(answer);

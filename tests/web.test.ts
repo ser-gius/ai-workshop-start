@@ -134,6 +134,8 @@ async function openPage(t: { after(fn: () => void): void }, query: string) {
       return view;
     },
     noMatch: () => $('no-match').textContent,
+    /** The SKILL.md view's hint while no skill is selected; null when one is. */
+    placeholder: () => document.querySelector('#skill .placeholder')?.textContent ?? null,
     /** The pill in the filter field. */
     count: () => $('count').textContent,
     /** Each shown skill's name and its snippet, or its folded description, the highlights in [brackets]. */
@@ -416,7 +418,7 @@ test('an organization: its repositories with skills, grouped, each skill with it
  * The page in jsdom, at `?repo=<repo>`: it scans at once. Its requests go to the test server, or to
  * `answer` for /api/scan when given; `release` lets a held answer through.
  */
-function pageAt(t: TestContext, repo: string, answer?: () => Promise<Response>) {
+function pageAt(t: TestContext, repo: string, answer?: () => Promise<Response>, layout?: (window: JSDOM['window']) => void) {
   return (async () => {
     const html = await (await fetch(url)).text();
     const dom = new JSDOM(html, {
@@ -427,6 +429,7 @@ function pageAt(t: TestContext, repo: string, answer?: () => Promise<Response>) 
           const asked = new URL(String(path), url);
           return asked.pathname === '/api/scan' && answer ? answer() : fetch(asked);
         };
+        layout?.(window);
       },
     });
     t.after(() => dom.window.close());
@@ -778,4 +781,75 @@ test('./skill-atlas serve with a wrong argument → usage, exit code 1', () => {
   const wrong = spawnSync(process.execPath, [CLI, 'serve', '--port', 'x'], { encoding: 'utf8' });
   assert.equal(wrong.status, 1);
   assert.equal(wrong.stderr, 'Usage: skill-atlas serve [--port <number>]\n');
+});
+
+test('the filter and the skills show only once a scan has answered: not before, not while scanning, not on a failure', async (t) => {
+  const results = (document: Document) => (document.getElementById('results') as HTMLElement).hidden;
+  const blank = await pageAt(t, '');
+  assert.equal(results(blank.document), true, 'no scan yet: only the field');
+
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const scanning = await pageAt(t, FIXTURE, async () => {
+    await held;
+    return fetch(`${url}api/scan?repo=${encodeURIComponent(FIXTURE)}`);
+  });
+  assert.equal(results(scanning.document), true, 'while scanning: hidden');
+  release();
+  await scanning.scanned();
+  assert.equal(results(scanning.document), false, 'scanned: the filter and the skills');
+  assert.equal(scanning.document.getElementById('status')!.textContent, 'fixture · 7 skills');
+
+  const failed = await pageAt(t, 'https://github.com/no-such-org');
+  await failed.scanned();
+  assert.equal(results(failed.document), true, 'a failure: only its message');
+  assert.equal(failed.document.getElementById('status')!.textContent, 'Organization not found: https://github.com/no-such-org');
+});
+
+test('no skill selected: the SKILL.md view says how to read one', async (t) => {
+  const page = await openPage(t, fixtureQuery('zzz'));
+  assert.equal(page.selected(), null);
+  assert.equal(page.placeholder(), 'Select a skill to read its SKILL.md.');
+  page.type('');
+  assert.equal(page.selected(), 'aspect-generator');
+  assert.equal(page.placeholder(), null, 'a skill selected: its SKILL.md instead');
+});
+
+test('a sentence cut at two lines folds: the skills are on screen when it is measured', async (t) => {
+  // jsdom has no layout: a description's clamp is three lines high while on screen, nothing while hidden.
+  const layout = (window: JSDOM['window']) => {
+    const offScreen = (node: Element) => !!node.closest('[hidden]');
+    Object.defineProperty(window.HTMLElement.prototype, 'scrollHeight', { get(this: Element) { return offScreen(this) ? 0 : 60; } });
+    Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { get(this: Element) { return offScreen(this) ? 0 : 40; } });
+  };
+  const sentence = 'One long sentence that runs on past the two lines of the list without a single stop.';
+  const answer = organizationAnswer('octo', 1, [['long', 1]]);
+  Object.assign(answer.repositories[0].skills[0], { description: sentence, summary: sentence });
+  const page = await pageAt(t, 'github.com/octo', async () => Response.json(answer), layout);
+  await page.scanned();
+  const item = page.document.querySelector('#skills li[role="option"]')!;
+  assert.ok(item.querySelector('details.description'), 'one sentence, cut at two lines: a fold');
+  assert.equal(item.querySelector('details.description .whole')!.textContent, sentence);
+});
+
+test('no skills: the SKILL.md view says how to read one', async (t) => {
+  const page = await pageAt(t, 'github.com/empty-org', async () => Response.json(organizationAnswer('empty-org', 4, [])));
+  await page.scanned();
+  assert.equal(page.document.querySelector('#skills li[role="option"]'), null);
+  assert.equal(page.document.querySelector('#skill .placeholder')?.textContent, 'Select a skill to read its SKILL.md.');
+});
+
+test("an organization: its card shows while it scans, the filter and the skills only once it has answered", async (t) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const answer = organizationAnswer('JetBrains', 865, [['kotlin', 6]]);
+  const page = await pageAt(t, 'github.com/JetBrains', async () => (await held, Response.json(answer)));
+  const results = () => (page.document.getElementById('results') as HTMLElement).hidden;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(page.card().hidden, false, 'scanning: the card');
+  assert.equal(results(), true, 'scanning: no filter, no skills');
+  release();
+  await page.scanned();
+  assert.equal(page.card().hidden, false);
+  assert.equal(results(), false, 'answered: the filter and the skills');
 });

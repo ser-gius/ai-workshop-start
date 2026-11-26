@@ -37,6 +37,18 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
 
 ## The page
 
+### WEB-31 · Before a scan, only the header; the skills once a scan has answered
+**Steps**
+1. Open http://127.0.0.1:4173/ (no `?repo=`)
+2. Scan `https://github.com/JetBrains/no-such-repository-qa`
+3. Scan `<checkout>/fixture`
+
+**Should see**
+- Step 1: the header on one row: `Skill Atlas`, the field (placeholder `A GitHub link or a local directory`)
+  and **Scan**. No *Filter the skills* card, no list, no `SKILL.md` view
+- Step 2: `Scanning …` in the header, then `Repository not found: …`; still only the header, no skills
+- Step 3: on the header's row, after **Scan**: `fixture · 7 skills`; under it, *Filter the skills* and the skills
+
 ### WEB-04 · A repository: its skills, the first one selected
 **Steps**
 1. Scan `<checkout>/fixture`
@@ -246,7 +258,7 @@ On `<checkout>/fixture` unless a case says otherwise.
 1. Type `zzz`
 
 **Should see**
-- `No skills match "zzz"`; an empty list; **no** selected skill on the right
+- `No skills match "zzz"`; an empty list; **no** selected skill: on the right, `Select a skill to read its SKILL.md.`
 
 ### WEB-22 · The selected skill stays while it matches
 **Steps**
