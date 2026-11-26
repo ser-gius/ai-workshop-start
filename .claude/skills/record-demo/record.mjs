@@ -3,7 +3,7 @@
 // The cases run one after another in one video; `--list` lists them.
 import { createRequire } from 'node:module';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -88,6 +88,8 @@ if (outAt >= 0 && (!args[outAt + 1] || CASES[args[outAt + 1]] || args[outAt + 1]
 const out = resolve(outAt >= 0 ? args.splice(outAt, 2)[1] : join(process.env.AIR_ARTIFACTS_DIR ?? '.', 'demo.mp4'));
 const unknown = args.filter((a) => !CASES[a]);
 if (unknown.length) { console.error(`Unknown case: ${unknown.join(', ')}; --list lists them`); process.exit(1); }
+// Before recording: a missing directory would only fail at the end, in ffmpeg.
+mkdirSync(dirname(out), { recursive: true });
 
 const port = 4300 + Math.floor(Math.random() * 500);
 const server = spawn(join(ROOT, 'skill-atlas'), ['serve', '--port', String(port)], { cwd: ROOT, stdio: ['ignore', 'pipe', 'inherit'] });
@@ -97,29 +99,33 @@ const url = await new Promise((ok, fail) => {
 });
 
 const videos = mkdtempSync(join(tmpdir(), 'demo-'));
-const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome' });
-const size = { width: 1280, height: 800 };
-const context = await browser.newContext({ viewport: size, recordVideo: { dir: videos, size } });
-const p = await context.newPage();
-const h = {
-  url,
-  pause: (ms) => p.waitForTimeout(ms),
-  async scan(link) { await p.fill('#repo', ''); await p.type('#repo', link, { delay: 40 }); await p.waitForTimeout(400); await p.click('#scan'); },
-  skills: () => p.waitForSelector('#skills li:not([hidden])', { timeout: 60_000 }),
-  async filter(words, { append = false } = {}) { if (!append) await p.fill('#filter', ''); await p.click('#filter'); await p.type('#filter', words, { delay: 150 }); },
-  async clearFilter() { await p.fill('#filter', ''); await p.waitForTimeout(1000); },
-  async scroll(dy, ms) { await p.mouse.wheel(0, dy); await p.waitForTimeout(ms); await p.mouse.wheel(0, -dy); await p.waitForTimeout(800); },
-};
+// The WebM goes once it is converted, or when a case fails.
 try {
-  await p.goto(url);
-  await h.pause(1000);
-  for (const name of args) { console.log(`Recording ${name}…`); await CASES[name].run(p, h); }
+  const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome' });
+  const size = { width: 1280, height: 800 };
+  const context = await browser.newContext({ viewport: size, recordVideo: { dir: videos, size } });
+  const p = await context.newPage();
+  const h = {
+    url,
+    pause: (ms) => p.waitForTimeout(ms),
+    async scan(link) { await p.fill('#repo', ''); await p.type('#repo', link, { delay: 40 }); await p.waitForTimeout(400); await p.click('#scan'); },
+    skills: () => p.waitForSelector('#skills li:not([hidden])', { timeout: 60_000 }),
+    async filter(words, { append = false } = {}) { if (!append) await p.fill('#filter', ''); await p.click('#filter'); await p.type('#filter', words, { delay: 150 }); },
+    async clearFilter() { await p.fill('#filter', ''); await p.waitForTimeout(1000); },
+    async scroll(dy, ms) { await p.mouse.wheel(0, dy); await p.waitForTimeout(ms); await p.mouse.wheel(0, -dy); await p.waitForTimeout(800); },
+  };
+  try {
+    await p.goto(url);
+    await h.pause(1000);
+    for (const name of args) { console.log(`Recording ${name}…`); await CASES[name].run(p, h); }
+  } finally {
+    await context.close();
+    await browser.close();
+    server.kill();
+  }
+  const webm = join(videos, readdirSync(videos)[0]);
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', webm, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23', '-movflags', '+faststart', out]);
 } finally {
-  await context.close();
-  await browser.close();
-  server.kill();
+  rmSync(videos, { recursive: true, force: true });
 }
-const webm = join(videos, readdirSync(videos)[0]);
-execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', webm, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23', '-movflags', '+faststart', out]);
-rmSync(videos, { recursive: true });
 console.log(out);
