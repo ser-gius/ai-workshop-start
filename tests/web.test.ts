@@ -6,6 +6,7 @@ import { request } from 'node:http';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
+import { JSDOM } from 'jsdom';
 import { createBrowserBackend } from '../src/browser.ts';
 import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
@@ -100,21 +101,146 @@ test('the filter: empty or only spaces → every skill; no match → none', asyn
   assert.deepEqual(await filtered('no-such-word'), []);
 });
 
-test('the page filters as you type, with the same filter, and links to the filtered view', async () => {
+/** The served page, its own script running in a DOM, at `?<query>`, asking this server; closed after the test. */
+async function openPage(t: { after(fn: () => void): void }, query: string) {
+  const html = await (await fetch(url)).text();
+  const scans: string[] = [];
+  const dom = new JSDOM(html, {
+    url: `${url}?${query}`,
+    runScripts: 'dangerously',
+    beforeParse(window) {
+      (window as unknown as { fetch: typeof fetch }).fetch = (path) => {
+        const asked = new URL(String(path), url);
+        if (asked.pathname === '/api/scan') scans.push(asked.searchParams.get('repo') ?? '');
+        return fetch(asked);
+      };
+    },
+  });
+  t.after(() => dom.window.close());
+  const { document } = dom.window;
+  const $ = (id: string) => document.getElementById(id) as HTMLElement & { value: string; disabled: boolean };
+  const page = {
+    scans,
+    status: () => $('status').textContent,
+    /** The skills in the list, by name. */
+    shown: () => [...document.querySelectorAll('#skills li:not([hidden]) .name')].map((name) => name.textContent),
+    /** The selected skill in the list, and the one in the SKILL.md view; null when none. */
+    selected: () => {
+      const inList = document.querySelectorAll('#skills li[aria-selected="true"] .name');
+      assert.ok(inList.length <= 1, 'at most one selected skill');
+      const view = document.querySelector('#skill h2')?.textContent ?? null;
+      assert.equal(inList[0]?.textContent ?? null, view, 'the list and the view agree');
+      return view;
+    },
+    noMatch: () => $('no-match').textContent,
+    filter: () => $('filter').value,
+    /** ?filter= in the link of this view; null when it is not there. */
+    linked: () => new URL(dom.window.location.href).searchParams.get('filter'),
+    linkedRepo: () => new URL(dom.window.location.href).searchParams.get('repo'),
+    type(text: string) {
+      $('filter').value = text;
+      $('filter').dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    },
+    select(name: string) {
+      const item = [...document.querySelectorAll('#skills li')].find((li) => li.querySelector('.name')?.textContent === name);
+      assert.ok(item, name);
+      (item as HTMLElement).click();
+    },
+    /** Waits until the scan the page started is answered and rendered. */
+    async scanned() {
+      for (let i = 0; i < 200 && ($('scan').disabled || !/ · /.test(page.status() ?? '')); i++) await new Promise((r) => setTimeout(r, 10));
+      assert.ok(!$('scan').disabled, 'the scan finished');
+    },
+    async scanAgain() {
+      $('scan').click();
+      assert.equal($('scan').disabled, true, 'a new scan started');
+      await page.scanned();
+    },
+  };
+  await page.scanned();
+  return page;
+}
+
+const fixtureQuery = (filter?: string) => new URLSearchParams(filter === undefined ? { repo: FIXTURE } : { repo: FIXTURE, filter }).toString();
+
+test('the page has a filter field, and runs the tested filter', async () => {
   const page = await (await fetch(url)).text();
   assert.match(page, /<input id="filter"[^>]*aria-label="Filter skills"/, 'a filter field');
   assert.ok(page.includes(String(matchesFilter)), 'the page runs the tested filter');
-  assert.match(page, /\$\('filter'\)\.addEventListener\('input', /, 'as you type, no new scan');
-  assert.match(page, /item\.hidden = !matchesFilter\(skill, filter\)/);
-  assert.match(page, /shown \+ ' of ' \+ total/, 'the count shows the matches');
-  assert.match(page, /'No skills match "' \+ filter\.trim\(\) \+ '"'/, 'no match: a message');
-  assert.match(page, /if \(!shown\) \{[^}]*\$\('skill'\)\.replaceChildren\(\)/, 'and no selected skill');
-  assert.match(page, /if \(!selected \|\| selected\.item\.hidden\)/, 'the selected skill stays while it matches');
-  assert.match(page, /get\('filter'\)/, '?filter= on load');
-  assert.match(page, /params\.delete\('filter'\)/, 'an empty filter drops the parameter');
-  assert.match(page, /params\.set\('filter', filter\.trim\(\)\)/, 'typing updates the link');
-  assert.doesNotMatch(page, /\$\('filter'\)\.value = ''/, 'a new scan keeps the filter');
-  assert.doesNotMatch(page, /innerHTML/, 'the filter is shown as text');
+});
+
+test('the page without a filter: every skill, the count of all, the first selected', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  assert.equal(page.status(), 'fixture · 7 skills');
+  assert.deepEqual(page.shown(), ['aspect-generator', 'code-style', 'commits', 'lint-checks', 'release-checklist', 'reviews', 'run-tests']);
+  assert.equal(page.selected(), 'aspect-generator');
+  assert.equal(page.filter(), '');
+  assert.equal(page.noMatch(), '');
+});
+
+test('?filter= on load: the filtered view, its count of the matches, the first match selected', async (t) => {
+  const page = await openPage(t, fixtureQuery('use before'));
+  assert.equal(page.filter(), 'use before');
+  assert.equal(page.status(), 'fixture · 3 of 7 skills');
+  assert.deepEqual(page.shown(), ['code-style', 'reviews', 'run-tests']);
+  assert.equal(page.selected(), 'code-style');
+  assert.equal(page.linked(), 'use before');
+});
+
+test('the page filters as you type, with no new scan, and the link follows', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  assert.equal(page.scans.length, 1);
+  page.type('chec');
+  assert.deepEqual(page.shown(), ['lint-checks', 'release-checklist']);
+  assert.equal(page.status(), 'fixture · 2 of 7 skills');
+  assert.equal(page.linked(), 'chec', 'typing updates the link');
+  assert.equal(page.linkedRepo(), FIXTURE, 'beside ?repo=');
+  page.type('  generator   plugin ');
+  assert.deepEqual(page.shown(), ['aspect-generator'], 'one word in the name, another in the description');
+  assert.equal(page.status(), 'fixture · 1 of 7 skills');
+  assert.equal(page.linked(), 'generator   plugin', 'the link has the words, without the spaces around them');
+  assert.equal(page.scans.length, 1, 'no new scan');
+});
+
+test('the selected skill stays while it matches; else the first match is selected', async (t) => {
+  const page = await openPage(t, fixtureQuery('use before'));
+  page.select('reviews');
+  assert.equal(page.selected(), 'reviews');
+  page.type('use');
+  assert.equal(page.selected(), 'reviews', 'it still matches: it stays');
+  page.type('kotlin');
+  assert.deepEqual(page.shown(), ['code-style']);
+  assert.equal(page.selected(), 'code-style', 'it no longer matches: the first match');
+});
+
+test('no match: a message with the filter, no selected skill; empty or only spaces → every skill, no ?filter=', async (t) => {
+  const page = await openPage(t, fixtureQuery('use before'));
+  page.type('zzz');
+  assert.deepEqual(page.shown(), []);
+  assert.equal(page.status(), 'fixture · 0 of 7 skills');
+  assert.equal(page.noMatch(), 'No skills match "zzz"');
+  assert.equal(page.selected(), null);
+  assert.equal(page.linked(), 'zzz');
+
+  page.type('   ');
+  assert.equal(page.status(), 'fixture · 7 skills');
+  assert.equal(page.shown().length, 7);
+  assert.equal(page.noMatch(), '');
+  assert.equal(page.selected(), 'aspect-generator', 'a match again: the first one');
+  assert.equal(page.linked(), null, 'an empty filter drops the parameter');
+  assert.equal(page.linkedRepo(), FIXTURE);
+});
+
+test('a new scan keeps the filter', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  page.type('CHEC');
+  await page.scanAgain();
+  assert.equal(page.scans.length, 2);
+  assert.equal(page.filter(), 'CHEC');
+  assert.equal(page.status(), 'fixture · 2 of 7 skills');
+  assert.deepEqual(page.shown(), ['lint-checks', 'release-checklist']);
+  assert.equal(page.selected(), 'lint-checks');
+  assert.equal(page.linked(), 'CHEC');
 });
 
 test('a GitHub repository: its skills, each with its pinned link and its SKILL.md', async () => {
