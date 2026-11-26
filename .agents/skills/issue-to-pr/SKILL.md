@@ -72,3 +72,19 @@ EOF
 ## 7. Wait for green
 `gh pr checks --watch`. If CI fails, read the log (`gh run view --log-failed`), fix it,
 push again. Report the PR URL and the CI result to the user; do not merge unless asked.
+
+## 8. Keep watching the PR
+After the PR is open, check it every few minutes (for example with `/loop 5m`) until it is
+merged or closed, or the user says to stop:
+
+```sh
+gh pr view --json state,mergeable,reviewDecision,statusCheckRollup
+gh pr view --comments
+gh api repos/{owner}/{repo}/pulls/<pr>/comments
+```
+
+- CI turned red: read the log, fix, push, as in step 7.
+- New review comments: run the [address-review](../address-review/SKILL.md) skill on the PR.
+- Conflicts with `main`: rebase onto an up-to-date `main`, rerun step 5, push.
+- Merged or closed: stop checking and tell the user.
+Report only what changed since the last check; stay quiet when nothing did.
