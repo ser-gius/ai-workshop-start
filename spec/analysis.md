@@ -1,8 +1,8 @@
 # Repository analysis
 ## Input
-A **GitHub repository** URL, or a local directory
+A **GitHub repository** URL, a **GitHub organization** URL, or a local directory
 ## Output
-Every `SKILL.md`: **name**, **description**, **link**
+Every `SKILL.md`: **name**, **description**, **link**; for an organization, *grouped by repository*
 ## Architecture
 Core: fetch → find → parse. CLI: a *thin client*.
 Skill: id = `repo:path`, name, description, commit
@@ -15,7 +15,32 @@ Skill: id = `repo:path`, name, description, commit
 - Unknown commit → a clear message, exit code 1
 - Malformed front matter → a *warning*, the scan goes on
 - Unreachable repository → a clear message, exit code 1
+- GitHub's rate limit, when it says to wait *a minute* or less (code search: 10 requests a minute) →
+  wait, then ask again, twice at most; a longer wait → `GitHub rate limit reached; try again in <n> minutes`, exit code 1.
+  `<n>` is GitHub's wait rounded up: `Retry-After: 120` → `2 minutes`. When GitHub names the limit
+  (`x-ratelimit-resource`), so does the message: `GitHub rate limit reached (the core limit); try again in 13 minutes`
+- `.` or `..` as the owner or the name → `Repository not found: <URL>`, nothing asked of GitHub
 - A **private** repository, with a `GITHUB_TOKEN` that can read it: listed *and read* with the token
+- An empty repository (no commit yet) → `Repository is empty: <URL>`, exit code 1
+
+## An organization
+`github.com/<owner>`: every repository of an organization, or of a user's account, at its default branch.
+- Its repositories: GitHub's list, `/orgs/<owner>/repos` (`/users/<owner>/repos` for a user), 100 a page;
+  the pages its public repositories need *at once*, then the next while a page is full (private ones)
+- **Forks** are left out: their skills are their upstream's
+- **More than 20** repositories, with `GITHUB_TOKEN`: *one* code search over the whole organization
+  (`org:<owner>`, `user:<owner>`), not one per repository; only the repositories it finds are read
+- Up to 20, or without a token: each repository's **tree**, as a fixed commit is; no code search, which has
+  a tight limit of its own (and the Actions `GITHUB_TOKEN` hardly any)
+- Code search returns at most *1000* files: more `SKILL.md` than that → a *warning*, some may be missing
+- Each repository: the rules above, skills and copies within that repository only
+- Listed: the repositories **with skills**, sorted by `owner/name`, ignoring case; the others are only counted
+- A repository's warning, prefixed with `owner/name`, as a *warning*; so is one that fails
+  (`JetBrains/x: Commit not found: …; skipped`): the scan goes on
+- An empty repository → no skills, no warning
+- Unknown organization → `Organization not found: <URL>`, exit code 1; so is `.` or `..` as the owner
+  (`github.com/..`, nothing asked of GitHub), and an answer from GitHub without a `login`
+- A rejected token, the rate limit, GitHub unreachable → the whole scan stops: a clear message, exit code 1
 
 ## What is a project skill?
 `<root>/<name>/SKILL.md`, where `<root>` is a folder named `skills`:

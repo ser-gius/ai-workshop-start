@@ -14,12 +14,23 @@ const MPS = '1cbf7f783dbc5c74c8e5231d31f61b02829143de';
 const ANDROID = '6c1bcc42a2cbb45c241fafea9fbd82d32ac4d765';
 const KOOG = '709079e4a34d6c9234583352550e6a2b88a0bb85';
 
-/** `./skill-atlas scan github.com/<id>/tree/<commit>`; the three run at the same time. */
+/** `./skill-atlas scan github.com/<id>/tree/<commit>`; all the scans run at the same time. */
 function scan(id: string, commit: string) {
   if (!token) return Promise.reject(new Error('set GITHUB_TOKEN: a fixed commit of a large repository is listed through the API'));
   return promisify(execFile)(ATLAS, ['scan', `github.com/${id}/tree/${commit}`], { env: { ...process.env, GITHUB_TOKEN: token } });
 }
-const scans = { mps: scan('JetBrains/MPS', MPS), android: scan('JetBrains/android', ANDROID), koog: scan('JetBrains/koog', KOOG) };
+/** `./skill-atlas scan github.com/<owner>`: every repository at its default branch, so not pinned. */
+function scanOrganization(owner: string) {
+  if (!token) return Promise.reject(new Error('set GITHUB_TOKEN: each repository of the organization is listed through the API'));
+  return promisify(execFile)(ATLAS, ['scan', `github.com/${owner}`], { env: { ...process.env, GITHUB_TOKEN: token } });
+}
+const scans = {
+  mps: scan('JetBrains/MPS', MPS),
+  android: scan('JetBrains/android', ANDROID),
+  koog: scan('JetBrains/koog', KOOG),
+  // Small, so through each repository's tree: CI's GITHUB_TOKEN gets hardly any code search.
+  getnao: scanOrganization('getnao'),
+};
 for (const pending of Object.values(scans)) pending.catch(() => {}); // each test reports its own failure
 
 const blob = (id: string, commit: string, path: string) => `  https://github.com/${id}/blob/${commit}/${path}`;
@@ -83,4 +94,41 @@ test('JetBrains/koog: test data, weather-retrieval and arithmetic-evaluator, is 
       '',
     ].join('\n'),
   );
+});
+
+test('getnao, a small organization: forks left out, grouped and sorted, each repository as its own scan at that commit', async () => {
+  // The organization changes: what holds whatever its repositories hold.
+  const { stdout } = await scans.getnao;
+  // GitHub's own list, asked separately: the repositories that are not forks.
+  const response = await fetch('https://api.github.com/orgs/getnao/repos?per_page=100', { headers: { Authorization: `Bearer ${token}` } });
+  const listed = (await response.json()) as { full_name: string; fork: boolean }[];
+  const own = listed.filter((repository) => !repository.fork).map((repository) => repository.full_name);
+  assert.ok(own.length < listed.length, 'getnao has forks');
+  assert.ok(own.length <= 20, 'small: listed through trees, not code search');
+
+  const [header, ...blocks] = stdout.trimEnd().split('\n\n');
+  const match = /^getnao · (\d+) skills? in (\d+) of (\d+) repositor(?:y|ies)$/.exec(header);
+  assert.ok(match, header);
+  const [skills, withSkills, repositories] = match.slice(1).map(Number);
+  assert.equal(repositories, own.length, 'forks left out');
+  assert.ok(withSkills >= 1, header);
+  assert.equal(blocks.length, withSkills);
+  const ids: string[] = [];
+  let listedSkills = 0;
+  for (const block of blocks) {
+    const heading = /^(getnao\/[\w.-]+) · (\d+) skills?$/.exec(block.split('\n')[0]);
+    assert.ok(heading, block.split('\n')[0]);
+    const [, id, count] = heading;
+    assert.ok(own.includes(id), `${id} is one of its own repositories`);
+    ids.push(id);
+    listedSkills += Number(count);
+    // The block is what scanning the repository alone, at the same commit, prints.
+    const commit = new RegExp(`^  https://github\\.com/${id}/blob/([0-9a-f]{40})/`, 'm').exec(block)?.[1];
+    assert.ok(commit, `${id}: links pinned to the scanned commit`);
+    const alone = await scan(id, commit);
+    assert.equal(alone.stdout.trimEnd(), block, id);
+  }
+  assert.equal(listedSkills, skills);
+  const key = (id: string) => id.toLowerCase();
+  assert.deepEqual(ids, [...ids].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0)));
 });

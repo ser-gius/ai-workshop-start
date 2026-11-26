@@ -1,8 +1,11 @@
-# CI for your Skill Atlas repository: the typecheck, the tests and the CLI itself, on every push
-# and pull request, on a clean machine. A pull request is ready when this is green.
+# CI for your Skill Atlas repository: the typecheck, the tests and the CLI itself, on every pull
+# request and every push to main, on a clean machine. A pull request is ready when this is green.
+# Not on every push too: a pull request's branch would run twice per change, both runs' end-to-end
+# tests at once, on the same GITHUB_TOKEN limits (code search: 10 a minute; the API: 1,000 an hour).
 name: CI
 on:
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
@@ -22,6 +25,14 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # What this run's token may still ask of GitHub: an end-to-end failure on a rate limit shows here.
+      # Asking for the limits counts against none of them.
+      - name: GitHub limits
+        run: >-
+          curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/rate_limit
+          | jq -c '.resources | {core, search, code_search}'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # The real CLI on real repositories at fixed commits; the token lists their large trees.
       - name: End-to-end tests
         run: npm run test:e2e

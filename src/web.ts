@@ -1,4 +1,5 @@
-// The local web view: a page with a field for a repository link, its skills and their SKILL.md.
+// The local web view: a page with a field for a repository link, its skills and their SKILL.md; an
+// organization's link, its repositories' skills, grouped by repository.
 // The same core as the CLI; the page asks GET /api/scan?repo=<URL> and renders the answer, and
 // GET /api/repositories for the user's GitHub repositories to suggest in the field.
 // Nothing is stored: every scan is fresh.
@@ -6,11 +7,11 @@ import { createServer, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
 import type { UserRepositories } from './core/github.ts';
 import { firstSentence, skillLink } from './core/model.ts';
-import { scan, type Source } from './core/scan.ts';
+import { isOrganization, scan, scanOrganization, type OrganizationSource, type ScanResult, type Source } from './core/scan.ts';
 
 export type WebOptions = {
-  /** Opens what the user typed into the field. */
-  open(input: string): Promise<Source>;
+  /** Opens what the user typed into the field: a repository, or an organization's repositories. */
+  open(input: string): Promise<Source | OrganizationSource>;
   /** The user's repositories, suggested in the field; none without it. */
   repositories?(): Promise<UserRepositories>;
 };
@@ -18,8 +19,8 @@ export type WebOptions = {
 /** What GET /api/repositories answers: the suggestions, a hint without a token, or GitHub's failure. */
 export type RepositoriesAnswer = UserRepositories & { error?: string };
 
-/** What GET /api/scan answers: the repository, each skill with its link and SKILL.md, and warnings. */
-export type ScanAnswer = {
+/** One repository in GET /api/scan's answer: the repository, each skill with its link and SKILL.md. */
+export type RepositoryAnswer = {
   repository: { id: string; url: string; commit: string };
   skills: {
     id: string;
@@ -33,8 +34,35 @@ export type ScanAnswer = {
     copies: string[];
     text: string;
   }[];
+};
+
+/** What GET /api/scan answers for a repository: its skills, and warnings. */
+export type ScanAnswer = RepositoryAnswer & { warnings: string[] };
+
+/** What GET /api/scan answers for an organization: the repositories with skills, grouped, and warnings. */
+export type OrganizationAnswer = {
+  /** `repositories`: how many it has, forks left out. */
+  organization: { id: string; url: string; repositories: number };
+  repositories: RepositoryAnswer[];
   warnings: string[];
 };
+
+/** A repository's skills as the page shows them. */
+function repositoryAnswer({ repository, skills }: ScanResult): RepositoryAnswer {
+  return {
+    repository: { id: repository.id, url: repository.url, commit: repository.commit },
+    skills: skills.map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description.replace(/\s+/g, ' ').trim(),
+      summary: firstSentence(skill.description),
+      path: skill.path,
+      link: skillLink(repository, skill),
+      copies: skill.copies,
+      text: skill.text,
+    })),
+  };
+}
 
 export function createWebServer({ open, repositories }: WebOptions): Server {
   return createServer(async (request, response) => {
@@ -65,22 +93,19 @@ export function createWebServer({ open, repositories }: WebOptions): Server {
     const repo = url.searchParams.get('repo')?.trim();
     if (!repo) return send(400, 'application/json', JSON.stringify({ error: 'Enter a repository link' }));
     try {
-      const result = await scan(await open(repo));
-      const { repository } = result;
-      const answer: ScanAnswer = {
-        repository: { id: repository.id, url: repository.url, commit: repository.commit },
-        skills: result.skills.map((skill) => ({
-          id: skill.id,
-          name: skill.name,
-          description: skill.description.replace(/\s+/g, ' ').trim(),
-          summary: firstSentence(skill.description),
-          path: skill.path,
-          link: skillLink(repository, skill),
-          copies: skill.copies,
-          text: skill.text,
-        })),
-        warnings: result.warnings,
-      };
+      const opened = await open(repo);
+      let answer: ScanAnswer | OrganizationAnswer;
+      if (isOrganization(opened)) {
+        const result = await scanOrganization(opened);
+        answer = {
+          organization: { ...result.organization, repositories: result.repositories },
+          repositories: result.results.map(repositoryAnswer),
+          warnings: result.warnings,
+        };
+      } else {
+        const result = await scan(opened);
+        answer = { ...repositoryAnswer(result), warnings: result.warnings };
+      }
       send(200, 'application/json', JSON.stringify(answer));
     } catch (error) {
       if (error instanceof AtlasError) return send(400, 'application/json', JSON.stringify({ error: error.message }));
@@ -211,6 +236,27 @@ const PAGE = `<!doctype html>
   #skills .description, #skills .snippet { color: var(--muted); font-size: 14px; min-width: 0; }
   #skills .snippet { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 1px; }
+  /* An organization's card: what was scanned, how far, and the repositories with the most skills. */
+  #organization { margin-bottom: 24px; max-width: 760px; }
+  #organization[hidden] { display: none; }
+  .target-name { flex: 1; min-width: 0; padding: 6px 0; font-size: 17px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .progress { height: 6px; margin: 12px 2px; border-radius: 3px; background: #e3e4f4; overflow: hidden; }
+  .progress span { display: block; height: 100%; width: 100%; border-radius: 3px; background: var(--accent); }
+  .progress.running span { width: 30%; animation: progress 1.2s ease-in-out infinite; }
+  @keyframes progress { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .top { list-style: none; margin: 4px 0 0; padding: 0; }
+  .top li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+  .top a { color: inherit; text-decoration: none; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .top a:hover { text-decoration: underline; }
+  .top .skills { color: var(--accent); font-weight: 700; white-space: nowrap; }
+  .more { color: var(--muted); padding-top: 2px; }
+  .more:empty { display: none; }
+  /* An organization's skills: a heading per repository. */
+  #skills li.group { display: block; padding: 12px 8px 4px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: default; }
+  #skills li.group:hover { background: none; }
+  #skills li.group a { color: inherit; text-decoration: none; }
+  #skills li.group a:hover { text-decoration: underline; }
   /* At most two lines, folded or not; the fold's own marker shows that it unfolds. */
   #skills .description .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   #skills details.description summary { display: flex; gap: 4px; cursor: pointer; list-style: none; }
@@ -235,7 +281,7 @@ const PAGE = `<!doctype html>
   </div>
   <form id="form" class="field">
     <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-    <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo" aria-label="Repository link" list="repositories" autocomplete="off" autofocus>
+    <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo, or https://github.com/owner" aria-label="Repository link" list="repositories" autocomplete="off" autofocus>
     <datalist id="repositories"></datalist>
     <button id="scan" class="pill" type="submit">Scan</button>
   </form>
@@ -243,6 +289,16 @@ const PAGE = `<!doctype html>
   <div id="status"></div>
   <ul id="warnings"></ul>
 </header>
+<section id="organization" class="card" aria-label="Organization" hidden>
+  <div class="card-title"><span class="tile"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><h2>Scan the organization</h2></div>
+  <div class="panel">
+    <div class="field"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span id="org-name" class="target-name"></span><span id="org-count" class="pill"></span></div>
+    <div id="org-progress" class="progress" role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+    <div id="org-label" class="label"></div>
+    <ul id="org-top" class="top"></ul>
+    <div id="org-more" class="more"></div>
+  </div>
+</section>
 <main>
   <section id="list" class="card">
     <div class="card-title">
@@ -323,7 +379,7 @@ function fold(short, text) {
 
 function show(skill, item) {
   selected = { skill, item };
-  for (const other of $('skills').children) other.setAttribute('aria-selected', String(other === item));
+  for (const other of $('skills').querySelectorAll('li[role="option"]')) other.setAttribute('aria-selected', String(other === item));
   const view = $('skill');
   const title = el('div', 'card-title');
   title.append($('file-icon').content.cloneNode(true), el('h2', '', skill.name));
@@ -335,6 +391,67 @@ function show(skill, item) {
   view.append(link);
   if (skill.copies.length) view.append(el('div', 'copies', 'also in ' + skill.copies.join(', ')));
   view.append(el('pre', 'skill-md', skill.text));
+}
+
+function count(n, one, many) {
+  return n + ' ' + (n === 1 ? one : many || one + 's');
+}
+
+// Each skill, its name and description; a click selects it.
+function list(skills, group) {
+  for (const skill of skills) {
+    const item = el('li');
+    item.setAttribute('role', 'option');
+    item.append(el('div', 'name', skill.name));
+    if (skill.description) item.append(description(skill));
+    item.append(el('div', 'snippet'));
+    item.addEventListener('click', () => show(skill, item));
+    $('skills').append(item);
+    foldIfClamped(item, skill);
+    scanned.entries.push({ skill, item, group });
+  }
+}
+
+// An organization's link, as the core reads it: github.com/<owner>, nothing after.
+const ORGANIZATION_URL = /^(?:https?:\\/\\/)?(?:www\\.)?github\\.com\\/([\\w.-]+)\\/?$/i;
+/** The repositories at the top of the organization's card. */
+const TOP = 3;
+
+// The card while an organization is scanned: its link, and the bar moving; no counts yet.
+function organizationScanning(owner) {
+  $('organization').hidden = false;
+  $('org-name').textContent = 'github.com/' + owner;
+  $('org-count').textContent = '…';
+  $('org-progress').className = 'progress running';
+  $('org-progress').removeAttribute('aria-valuenow');
+  $('org-label').textContent = 'Scanning…';
+  $('org-top').replaceChildren();
+  $('org-more').textContent = '';
+}
+
+// The card once scanned: the repositories, the bar full, the ones with the most skills, then how many more.
+function organizationScanned(answer) {
+  $('organization').hidden = false;
+  $('org-name').textContent = 'github.com/' + answer.organization.id;
+  $('org-count').textContent = count(answer.organization.repositories, 'repository', 'repositories');
+  $('org-progress').className = 'progress';
+  $('org-progress').setAttribute('aria-valuenow', '100');
+  const ranked = [...answer.repositories].sort((a, b) => b.skills.length - a.skills.length ||
+    a.repository.id.toLowerCase().localeCompare(b.repository.id.toLowerCase()));
+  const top = ranked.slice(0, TOP);
+  const more = ranked.length - top.length;
+  $('org-label').textContent = ranked.length ? ranked.length + ' with skills' + (more ? ', among them' : '') : 'No repository with skills';
+  $('org-top').replaceChildren(...top.map((group) => {
+    const item = el('li');
+    const link = el('a', '', group.repository.id.slice(group.repository.id.indexOf('/') + 1));
+    link.href = group.repository.url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.title = group.repository.id;
+    item.append(link, el('span', 'skills', count(group.skills.length, 'skill')));
+    return item;
+  }));
+  $('org-more').textContent = more ? '+' + more + ' more' : '';
 }
 
 // Narrows the list to the skills that match the filter field, highlighting the matches; no new scan.
@@ -357,14 +474,15 @@ function applyFilter() {
     short.replaceChildren(...marked(snippet || '', filter));
     short.title = snippet === null ? '' : skill.description;
   }
+  // A repository's heading shows while one of its skills does.
+  for (const group of scanned.groups) group.hidden = !scanned.entries.some((entry) => entry.group === group && !entry.item.hidden);
   const total = scanned.entries.length;
-  const skills = total === 1 ? ' skill' : ' skills';
   $('count').textContent = filterCount(shown, total, filter);
-  $('status').textContent = scanned.id + ' · ' + (shown === total ? total + skills : shown + ' of ' + total + skills);
+  $('status').textContent = shown === total ? scanned.summary : scanned.id + ' · ' + shown + ' of ' + count(total, 'skill');
   $('no-match').textContent = total && !shown ? 'No skills match "' + filter.trim() + '"' : '';
   if (!shown) {
     selected = null;
-    for (const item of $('skills').children) item.setAttribute('aria-selected', 'false');
+    for (const item of $('skills').querySelectorAll('li[role="option"]')) item.setAttribute('aria-selected', 'false');
     $('skill').replaceChildren();
   } else if (!selected || selected.item.hidden) {
     const first = scanned.entries.find(({ item }) => !item.hidden);
@@ -388,6 +506,9 @@ async function scan(repo) {
   selected = null;
   $('no-match').textContent = '';
   $('count').textContent = '';
+  const owner = ORGANIZATION_URL.exec(repo);
+  if (owner) organizationScanning(owner[1]);
+  else $('organization').hidden = true;
   $('scan').disabled = true;
   $('status').className = '';
   $('status').textContent = 'Scanning ' + repo + '…';
@@ -398,21 +519,33 @@ async function scan(repo) {
     const response = await fetch('/api/scan?repo=' + encodeURIComponent(repo));
     const answer = await response.json();
     if (!response.ok) throw new Error(answer.error);
-    scanned = { id: answer.repository.id, entries: [] };
     for (const warning of answer.warnings) $('warnings').append(el('li', '', warning));
-    for (const skill of answer.skills) {
-      const item = el('li');
-      item.setAttribute('role', 'option');
-      item.append(el('div', 'name', skill.name));
-      if (skill.description) item.append(description(skill));
-      item.append(el('div', 'snippet'));
-      item.addEventListener('click', () => show(skill, item));
-      $('skills').append(item);
-      foldIfClamped(item, skill);
-      scanned.entries.push({ skill, item });
+    if (answer.organization) {
+      organizationScanned(answer);
+      // An organization: a heading per repository, its skills under it.
+      const skills = answer.repositories.reduce((sum, group) => sum + group.skills.length, 0);
+      const total = answer.organization.repositories;
+      scanned = { id: answer.organization.id, entries: [], groups: [],
+        summary: answer.organization.id + ' · ' + count(skills, 'skill') + ' in ' + answer.repositories.length + ' of ' + count(total, 'repository', 'repositories') };
+      for (const group of answer.repositories) {
+        const heading = el('li', 'group');
+        heading.setAttribute('role', 'presentation');
+        const link = el('a', '', group.repository.id + ' · ' + count(group.skills.length, 'skill'));
+        link.href = group.repository.url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        heading.append(link);
+        $('skills').append(heading);
+        scanned.groups.push(heading);
+        list(group.skills, heading);
+      }
+    } else {
+      scanned = { id: answer.repository.id, entries: [], groups: [], summary: answer.repository.id + ' · ' + count(answer.skills.length, 'skill') };
+      list(answer.skills, null);
     }
     applyFilter();
   } catch (error) {
+    $('organization').hidden = true;
     $('status').className = 'error';
     $('status').textContent = error.message;
   } finally {

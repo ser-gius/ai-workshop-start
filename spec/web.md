@@ -4,7 +4,7 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - Only in the Node CLI: the browser terminal's `help` does not list it
 - A request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` → 403 (no DNS rebinding)
 ## Page
-- A **field** for a repository link: a GitHub URL, or a local directory
+- A **field** for a repository link: a GitHub URL, a GitHub organization URL, or a local directory
 - The repository and its skill count, then **every skill**: name and description, sorted by name
 - A description is **trimmed** to its first sentence, on one line, at most *two lines* on screen
   (a long sentence too); when there is more (a second sentence, or a sentence cut at two lines), it is
@@ -16,6 +16,15 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - Warnings under the field; an unreachable repository → its *clear message*, no skills
 - `?repo=<link>` scans at once, so a scan has a link of its own
 - A SKILL.md is shown as **text**, never as HTML
+- An **organization**: its name, skill count and `<n> of <m> repositories`, then the skills *grouped by
+  repository*: a heading per repository (`owner/name · N skills`, linked), its skills under it, as above
+- An organization's **card**, *Scan the organization*, above the skills (only for an organization):
+  - `github.com/<owner>` and a pill with its repository count (`865 repositories`, forks left out; `…` while scanning)
+  - A **progress bar**: moving while the scan runs (one request, so no percentage), full once it has answered
+  - `<n> with skills, among them`, then the **top 3** repositories by skill count, most first, a tie by name
+    ignoring case: the name without the owner, in monospace, linked, and `N skills`; then `+<n> more`
+    when there are more. With 3 or fewer: `<n> with skills`, no `+<n> more`; with none: `No repository with skills`
+  - Hidden for a repository or a local directory, and on a failure (its message shows instead)
 ## Filter
 A **filter field** above the skill list narrows it *as you type*, no new scan
 - Its **words** (split on spaces) are matched against a skill's **name** and whole **description**:
@@ -32,12 +41,16 @@ A **filter field** above the skill list narrows it *as you type*, no new scan
 - No match → `No skills match "<filter>"`, no selected skill
 - The selected skill stays while it matches; else the first match is selected
 - A new scan keeps the filter
+- An organization: its skills are filtered *across its repositories*; a repository's heading shows only over a match;
+  filtered, the count is `<owner> · 3 of 552 skills`; unfiltered, the organization's as above
 - `?filter=<words>`, with `?repo=`: the filtered view has a link of its own; typing updates the link,
   an empty filter drops the parameter
 ## API
 `GET /api/scan?repo=<link>` → JSON `{ repository, skills, warnings }`; a skill has `name`,
 `description` (on one line), `summary` (its first sentence), `path`, `link`, `copies` and `text`, the SKILL.md
 - No link, or an unreachable repository → 400 `{ error }`
+- An organization → `{ organization, repositories, warnings }`: `organization` has `id`, `url` and `repositories`
+  (how many, forks left out); `repositories` lists those with skills, each `{ repository, skills }` as above
 
 `GET /api/repositories` → JSON `{ repositories }`: the `GITHUB_TOKEN` user's repositories (GitHub's
 `/user/repos`), most recently pushed first, 100 a page, at most 3 pages; a repository has `full_name`,
