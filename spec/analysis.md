@@ -28,7 +28,8 @@ Skill: id = `repo:path`, name, description, commit, updated
 its *committer* date, in UTC (`2026-03-01T01:00:00+02:00` → `2026-02-28T23:00:00Z`).
 - Its files: its **folder** (`<root>/<name>/`, everything in it), and *each copy's*: the latest of them
 - GitHub: a folder's history, one commit a page, `/repos/<owner>/<repo>/commits?sha=<commit>&path=<folder>&per_page=1`;
-  one request per folder
+  one request per folder, *only with a token*: without one, *no date*, no warning (GitHub's 60 requests an hour
+  would not last: JetBrains/MPS has 86 folders); the browser terminal has none
 - A local directory: `git log` in the git repository it is in (it may be below the root); changes not committed
   yet do not count
 - No commit touched it (a local skill not committed yet), or a directory outside git → *no date*, no warning

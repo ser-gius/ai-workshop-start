@@ -3,7 +3,7 @@
 `github.com/<owner>/<repo>/tree/<commit>`: the repository at that commit (or branch, or tag).
 `github.com/<owner>`: every repository of the organization (or the user), grouped by repository.
 Prints the result **at once**; *nothing is stored*.
-`GITHUB_TOKEN`, optional: a higher GitHub rate limit.
+`GITHUB_TOKEN`, optional: a higher GitHub rate limit, and the day each GitHub skill last changed (none without it).
 ## Output
 ```
 JetBrains/kotlin · 6 skills

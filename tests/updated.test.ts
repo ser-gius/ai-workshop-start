@@ -6,7 +6,8 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { test, type TestContext } from 'node:test';
-import { openGitHub } from '../src/core/github.ts';
+import { createBrowserBackend } from '../src/browser.ts';
+import { openGitHub, type Fetch } from '../src/core/github.ts';
 import { replay, type Recording } from '../src/core/replay.ts';
 import { scan } from '../src/core/scan.ts';
 import { openDirectory } from '../src/local.ts';
@@ -92,6 +93,22 @@ test("GitHub: the rate limit on a folder's history stops the scan, as anywhere e
     stdout: '',
     stderr: 'GitHub rate limit reached; try again in a minute',
   });
+});
+
+test('GitHub without a token (the browser terminal too): no history is asked, no day, no warning', async () => {
+  const id = 'octo/tokenless';
+  const tree = `https://api.github.com/repos/${id}/git/trees/${EXAMPLE_COMMIT}?recursive=1`;
+  const recording: Recording = {
+    ...recordRepository(id, { '.claude/skills/x/SKILL.md': skillMd('x') }),
+    [tree]: { status: 200, body: { truncated: false, tree: [{ path: '.claude/skills/x/SKILL.md', type: 'blob' }] } },
+  };
+  const asked: string[] = [];
+  const recorded = replay(recording);
+  const fetch: Fetch = (url, init) => (asked.push(url), recorded(url, init));
+  const expected = ['octo/tokenless · 1 skill', 'x — Does x.', blob(id, '.claude/skills/x/SKILL.md')].join('\n');
+  assert.deepEqual(await atlasOn(recording, `https://github.com/${id}`, { token: undefined }), { code: 0, stdout: expected, stderr: '' });
+  assert.equal(await createBrowserBackend({ fetch }).run(`skill-atlas scan https://github.com/${id}`), expected);
+  assert.deepEqual(asked.filter((url) => url.includes('/commits?')), []);
 });
 
 /** A git repository of its own in a temporary directory; removed after the test. */

@@ -144,6 +144,8 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
   to open yet: covered by `npm test` only
 
 ### WEB-30 · When each skill last changed
+*Step 1 needs `GITHUB_TOKEN`: without it, a GitHub skill has no day.*
+
 **Steps**
 1. Scan `https://github.com/JetBrains/koog`; hover over a skill's day
 2. Select another skill

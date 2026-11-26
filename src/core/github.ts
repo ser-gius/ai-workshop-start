@@ -54,7 +54,7 @@ export async function openGitHub(input: string, options: GitHubOptions): Promise
     : name.ref
       ? await wholeTree(github, id, sha)
       : await searchPaths(github, id);
-  return source(github, id, sha, paths, warnings);
+  return source(github, id, sha, paths, warnings, options.token !== undefined);
 }
 
 /** A repository as GitHub lists it among its owner's. */
@@ -99,7 +99,7 @@ export async function openOrganization(input: string, options: GitHubOptions): P
           // With a token, the whole tree, a directory at a time if need be; without, the skill roots of a large one.
           const paths =
             found?.get(id) ?? (options.token ? await wholeTree(github, id, sha) : await treePaths(github, id, sha, repositoryWarnings));
-          return source(github, id, sha, paths, repositoryWarnings);
+          return source(github, id, sha, paths, repositoryWarnings, options.token !== undefined);
         },
       })),
     warnings,
@@ -126,15 +126,20 @@ async function commit(github: Client, id: string, ref: string): Promise<string> 
   return sha;
 }
 
-/** The repository at the commit: these files, read from there. */
-function source(github: Client, id: string, sha: string, paths: string[], warnings: string[]): Source {
+/**
+ * The repository at the commit: these files, read from there. With `dates`, when each skill last changed;
+ * without a token there are none: a request per skill folder would use up GitHub's 60 an hour.
+ */
+function source(github: Client, id: string, sha: string, paths: string[], warnings: string[], dates: boolean): Source {
   const [organization, repo] = id.split('/');
   return {
     repository: { id, organization, name: repo, url: `https://github.com/${id}`, commit: sha },
     paths,
     warnings,
     read: (path) => github.raw(`${RAW}/${id}/${sha}/${encodePath(path)}`),
-    updated: async (folders) => latest(await Promise.all(folders.map((folder) => lastCommit(github, id, sha, folder)))),
+    ...(dates && {
+      updated: async (folders: string[]) => latest(await Promise.all(folders.map((folder) => lastCommit(github, id, sha, folder)))),
+    }),
   };
 }
 

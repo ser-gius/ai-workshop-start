@@ -106,8 +106,8 @@ test('without GITHUB_TOKEN, a user: each repository through its tree; an empty o
       '',
       'octocat/hello · 1 skill',
       'greet — Greet the user.',
+      // Without a token, no history is asked: no day.
       blob('octocat/hello', '.claude/skills/greet/SKILL.md'),
-      '  updated 2026-06-30',
     ].join('\n'),
   );
 });

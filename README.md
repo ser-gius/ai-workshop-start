@@ -5,7 +5,7 @@ description, link and the day it last changed.
 
 ```console
 $ npm ci
-$ ./skill-atlas scan https://github.com/JetBrains/kotlin
+$ GITHUB_TOKEN=$(gh auth token) ./skill-atlas scan https://github.com/JetBrains/kotlin
 JetBrains/kotlin · 6 skills
 …
 build-tools-bump-gradle-api — Bumps the Gradle API version that Kotlin Gradle plugins are compiled against in the Kotlin compiler repository.
@@ -18,7 +18,7 @@ build-tools-bump-gradle-api — Bumps the Gradle API version that Kotlin Gradle 
 link (or a local directory), its skills, and each one's SKILL.md.
 
 `github.com/<owner>/<repo>/tree/<commit>` scans the repository at that commit. Set `GITHUB_TOKEN` for a
-higher GitHub rate limit. `npm test` runs the tests; `npm run test:e2e` runs them on real repositories;
+higher GitHub rate limit, and for the day each skill last changed. `npm test` runs the tests; `npm run test:e2e` runs them on real repositories;
 `npm run test:visual:docker` runs the demo as screenshot tests, on recorded GitHub answers (Docker).
 
 - [spec/](spec/): what it does. [AGENTS.md](AGENTS.md): the definition of done.
