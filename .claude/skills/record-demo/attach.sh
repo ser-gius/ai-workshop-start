@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Shows demo videos and screenshots in a pull request: `attach.sh <pr> <file.mp4|file.png>...`.
+# Shows demo videos and screenshots in a pull request:
+#   attach.sh [--note <markdown>] <pr> <file.mp4|file.png|file.gif>...
 #
 # GitHub has no API for PR attachments, so the files go to the orphan branch `demo-assets`
 # (never the PR branch), under `pr-<n>/`. The PR description then gets a "Demo" section between
@@ -7,7 +8,9 @@
 # and each screenshot inline. Links point at the commit, so a later run does not change them.
 set -euo pipefail
 
-[ $# -ge 2 ] || { echo "usage: attach.sh <pr-number> <file.mp4|file.png|file.gif>..." >&2; exit 2; }
+note=""
+if [ "${1:-}" = --note ]; then note=$2; shift 2; fi
+[ $# -ge 2 ] || { echo "usage: attach.sh [--note <markdown>] <pr-number> <file.mp4|file.png|file.gif>..." >&2; exit 2; }
 pr=$1; shift
 for f in "$@"; do [ -f "$f" ] || { echo "no such file: $f" >&2; exit 1; }; done
 
@@ -39,7 +42,7 @@ for f in "$@"; do
       ffmpeg -v error -y -i "$f" \
         -vf "fps=8,scale=800:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" \
         "$tmp/wt/$dir/$gif"
-      md+="IMG:$dir/$gif:$name"$'\n'"MP4:$dir/$name"$'\n' ;;
+      md+="HEAD:${name%.mp4}"$'\n'"IMG:$dir/$gif:$name"$'\n'"MP4:$dir/$name"$'\n' ;;
     *.png|*.gif|*.jpg|*.jpeg)
       md+="IMG:$dir/$name:$name"$'\n' ;;
     *) echo "skipping $name: not an MP4 or an image" >&2 ;;
@@ -52,10 +55,12 @@ sha=$(git -C "$tmp/wt" rev-parse HEAD)
 git -C "$tmp/wt" push -q origin "HEAD:refs/heads/$branch"
 
 section="<!-- demo:start -->"$'\n'"### Demo"$'\n\n'
+[ -z "$note" ] || section+="$note"$'\n\n'
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   kind=${line%%:*}; rest=${line#*:}
   case "$kind" in
+    HEAD) section+="**$rest**"$'\n\n' ;;
     IMG) path=${rest%%:*}; alt=${rest#*:}
          section+="![$alt](https://github.com/$repo/raw/$sha/$path)"$'\n\n' ;;
     MP4) section+="[Full video: $(basename "$rest")](https://github.com/$repo/blob/$sha/$rest)"$'\n\n' ;;
