@@ -35,8 +35,8 @@ its *committer* date, in UTC (`2026-03-01T01:00:00+02:00` → `2026-02-28T23:00:
 - No commit touched it (a local skill not committed yet), or a directory outside git → *no date*, no warning
 - A **shallow clone** whose history stops before the skill's last change (the commit found is where it stops,
   and adds every file) → *no date*, no warning
-- A folder's history that fails → a *warning* (`<path>: last update unknown: <message>`), the skill without a date;
-  the rate limit, a rejected token, GitHub unreachable stop the scan, as anywhere else
+- A folder's history that fails (GitHub's answer, or git's: a repository git refuses or cannot read) → a *warning*
+  (`<path>: last update unknown: <message>`), the skill without a date; the rate limit, a rejected token, GitHub unreachable stop the scan, as anywhere else
 
 ## An organization
 `github.com/<owner>`: every repository of an organization, or of a user's account, at its default branch.

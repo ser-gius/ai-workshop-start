@@ -37,16 +37,32 @@ export async function openDirectory(input: string): Promise<Source> {
  * The time of the latest commit that touched one of the folders, from the git repository the
  * directory is in. Undefined outside a git repository, without git, or when no commit touched them;
  * undefined too when that commit is where a shallow clone's history stops: it adds every file, and
- * the real change is older than the clone.
+ * the real change is older than the clone. A history git fails to read is an AtlasError, with git's message.
  */
 async function lastCommit(root: string, folders: string[], shallow: () => Promise<string[]>): Promise<string | undefined> {
+  let found: string;
   try {
-    const [hash, time] = (await git(root, ['log', '-1', '--format=%H %cI', '--', ...folders])).split(' ');
-    if (!hash || (await shallow()).includes(hash)) return undefined;
-    return utc(time);
-  } catch {
-    return undefined;
+    found = await git(root, ['log', '-1', '--format=%H %cI', '--', ...folders]);
+  } catch (error) {
+    if (outsideGit(error)) return undefined;
+    throw new AtlasError(`git log failed: ${gitMessage(error)}`);
   }
+  const [hash, time] = found.split(' ');
+  if (!hash || (await shallow()).includes(hash)) return undefined;
+  return utc(time);
+}
+
+/** No git to run, or a directory in no git repository: there is no history, which is no failure. */
+function outsideGit(error: unknown): boolean {
+  const { code, stderr } = error as { code?: unknown; stderr?: unknown };
+  return code === 'ENOENT' || (typeof stderr === 'string' && /not a git repository/i.test(stderr));
+}
+
+/** What git said, on one line: its first error (`detected dubious ownership in repository at '/x'`). */
+function gitMessage(error: unknown): string {
+  const { stderr } = error as { stderr?: unknown };
+  const line = typeof stderr === 'string' ? stderr.split('\n').find((text) => /^(fatal|error):/.test(text)) : undefined;
+  return line?.replace(/^(fatal|error):\s*/, '').trim() || (error instanceof Error ? error.message : String(error));
 }
 
 /** The commits where the repository's history stops, in a shallow clone (`.git/shallow`); none in a full one. */

@@ -246,6 +246,20 @@ test('a shallow clone: where its history stops is no change of the skill; a late
   );
 });
 
+test("a local directory whose git history fails → a warning for each skill, no day; the scan goes on", async (t) => {
+  const repo = repository(t);
+  repo.write('.claude/skills/x/SKILL.md', skillMd('x'));
+  repo.commit('2026-01-02T03:04:05Z');
+  // The commit's tree is gone: git finds the repository, but cannot read its history.
+  const tree = spawnSync('git', ['-C', repo.root, 'rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).stdout.trim();
+  rmSync(join(repo.root, '.git/objects', tree.slice(0, 2), tree.slice(2)));
+  const { code, stdout, stderr } = await atlas(['scan', repo.root]);
+  assert.equal(code, 0, stderr);
+  assert.deepEqual(stdout.split('\n').filter((line) => !line.startsWith('  file://')), [`${basename(repo.root)} · 1 skill`, 'x — Does x.']);
+  assert.match(stderr, /^warning: \.claude\/skills\/x\/SKILL\.md: last update unknown: git log failed: .+$/);
+  assert.match(stderr, new RegExp(tree));
+});
+
 test('a local directory outside git: no day, no warning', async (t) => {
   const copy = mkdtempSync(join(tmpdir(), 'skill-atlas-plain-'));
   t.after(() => rmSync(copy, { recursive: true, force: true }));
