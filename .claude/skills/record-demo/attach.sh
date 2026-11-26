@@ -57,14 +57,27 @@ git -C "$tmp/wt" commit -qm "Demo for #$pr" --allow-empty
 sha=$(git -C "$tmp/wt" rev-parse HEAD)
 git -C "$tmp/wt" push -q origin "HEAD:refs/heads/$branch"
 
+# Percent-encodes a path for a Markdown link: a space or a parenthesis would end the URL.
+urlencode() {
+  local LC_ALL=C s=$1 out="" c i
+  for ((i = 0; i < ${#s}; i++)); do
+    c=${s:i:1}
+    case "$c" in
+      [a-zA-Z0-9._~/-]) out+=$c ;;
+      *) printf -v c '%%%02X' "'$c"; out+=$c ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
 section="<!-- demo:start -->"$'\n'"### Demo"$'\n\n'
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   kind=${line%%:*}; rest=${line#*:}
   case "$kind" in
     IMG) path=${rest%%:*}; alt=${rest#*:}
-         section+="![$alt](https://github.com/$repo/raw/$sha/$path)"$'\n\n' ;;
-    MP4) section+="[Full video: $(basename "$rest")](https://github.com/$repo/blob/$sha/$rest)"$'\n\n' ;;
+         section+="![$alt](https://github.com/$repo/raw/$sha/$(urlencode "$path"))"$'\n\n' ;;
+    MP4) section+="[Full video: $(basename "$rest")](https://github.com/$repo/blob/$sha/$(urlencode "$rest"))"$'\n\n' ;;
   esac
 done <<< "$md"
 section+="<!-- demo:end -->"
