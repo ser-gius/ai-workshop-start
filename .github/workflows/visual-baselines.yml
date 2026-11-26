@@ -1,0 +1,70 @@
+# Makes the visual tests' baselines (tests/visual/*-snapshots) in the cloud: on Linux, in the same pinned
+# Playwright image as CI's visual job, so they are what CI compares with. Never on main. Two ways to run it:
+# - Label a pull request `update-baselines` (works before this file is on main); the label comes off when done
+# - gh workflow run visual-baselines.yml --ref <branch>
+# It commits the screenshots that changed, or are new, to the branch, then runs CI on that commit.
+name: Visual baselines
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+permissions:
+  contents: write # the commit with the baselines
+  actions: write # CI on that commit: a push with GITHUB_TOKEN starts no workflow by itself
+  pull-requests: write # the label off
+concurrency:
+  group: visual-baselines-${{ github.head_ref || github.ref }}
+env:
+  BRANCH: ${{ github.head_ref || github.ref_name }}
+jobs:
+  baselines:
+    # A fork's pull request gets a read-only token: its baselines come from a maintainer's run.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main') ||
+      (github.event.label.name == 'update-baselines' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.BRANCH }} # the branch itself, not a pull request's merge commit
+      - run: npm ci
+      - run: npm run test:visual -- --update-snapshots=changed
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: visual-baselines
+          path: |
+            tests/visual/*-snapshots/
+            test-results/
+            playwright-report/
+          retention-days: 14
+      - name: Commit the baselines
+        id: commit
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git add tests/visual/
+          if git diff --cached --quiet; then echo "The baselines are up to date"; exit 0; fi
+          git diff --cached --stat
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "Visual baselines from $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          git push origin "HEAD:$BRANCH"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+      - name: Run CI on the new baselines
+        if: steps.commit.outputs.pushed == 'true'
+        # ci.yml can be dispatched once it is on main; before that, push any commit to run it.
+        run: >-
+          curl -fsS -X POST -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json"
+          "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/dispatches" -d "{\"ref\": \"$BRANCH\"}"
+          || echo "::warning::CI could not be dispatched on $BRANCH: push a commit to run it"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Take the label off
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        run: >-
+          curl -sS -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN"
+          "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/${{ github.event.pull_request.number }}/labels/update-baselines"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,6 +7,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Run again by visual-baselines.yml once it has committed new baselines: its push starts no run itself.
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -43,3 +45,24 @@ jobs:
         run: |
           ./skill-atlas help
           ./skill-atlas scan ./fixture
+
+  # The demo as visual tests (tests/visual): its screenshots against the baselines, every run on video.
+  # In the Playwright image, pinned by digest, as in visual-baselines.yml: the same Chromium, the same fonts.
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci
+      - run: npm run test:visual
+      # The videos, and for a failure its screenshot, the baseline and the diff: every run, passed or failed.
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: visual-tests
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14

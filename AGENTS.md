@@ -15,3 +15,7 @@ Integration tests for every case in the spec.
 - `npm test`: the tests, offline
 - `npm run test:e2e`: end-to-end tests on real GitHub repositories at fixed commits; needs `GITHUB_TOKEN`
   (locally: `GITHUB_TOKEN=$(gh auth token) npm run test:e2e`)
+- `npm run test:visual:docker`: the demo as visual tests ([tests/visual](tests/visual/)), in the pinned
+  Playwright image CI uses; needs Docker. Their baselines are made in the cloud, never locally: label the
+  pull request `update-baselines` (or `gh workflow run visual-baselines.yml --ref <branch>`), then review
+  the screenshots it commits
