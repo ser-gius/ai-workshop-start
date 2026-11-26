@@ -323,6 +323,36 @@ export const CASES = {
     }
     await s.stop();
   },
+  async 'WEB-31'(t) {
+    t.needToken();
+    const box = (selector) => t.p.locator(selector).first().boundingBox();
+    // One row: each box's vertical middle inside the h1's height.
+    const oneRow = async (...selectors) => {
+      const title = await box('h1');
+      const boxes = await Promise.all(selectors.map(box));
+      const ok = !!title && boxes.every((b) => b && b.y + b.height / 2 > title.y && b.y + b.height / 2 < title.y + title.height);
+      return { ok, detail: `h1 ${JSON.stringify(title)}; ${selectors.map((s, i) => `${s} ${JSON.stringify(boxes[i])}`).join('; ')}` };
+    };
+    const onlyHeader = async () => ({ ok: (await t.p.isHidden('#results')) && (await t.p.isHidden('#list')) && (await t.p.isHidden('#skill')), detail: `#results hidden: ${await t.p.isHidden('#results')}` });
+    const s = await t.serve();
+    await t.step(1); await t.open(s.url);
+    await t.see('The header on one row: `Skill Atlas`, the field and **Scan**', () => oneRow('#repo', '#scan'));
+    await t.see('The placeholder `A GitHub link or a local directory`', async () => same(await t.p.getAttribute('#repo', 'placeholder'), 'A GitHub link or a local directory'));
+    await t.see('No *Filter the skills* card, no list, no `SKILL.md` view', onlyHeader);
+    await t.step(2); await t.scan('https://github.com/JetBrains/no-such-repository-qa', { wait: false });
+    const scanning = await t.text('#status');
+    await t.see('`Scanning …` in the header, no skills', async () => ({ ok: /^Scanning .+…$/.test(scanning) && (await onlyHeader()).ok, detail: `got ${JSON.stringify(scanning)}` }));
+    await t.scanned();
+    await t.see('Then `Repository not found: …`', async () => same(await t.text('#status'), 'Repository not found: https://github.com/JetBrains/no-such-repository-qa'));
+    await t.see('Still only the header, no skills', onlyHeader);
+    await t.step(3); await t.scan(t.fixture);
+    await t.see('On the header\'s row, after **Scan**: `fixture · 7 skills`', async () => {
+      const row = await oneRow('#status');
+      const after = (await box('#status')).x >= (await box('#scan')).x + (await box('#scan')).width;
+      return { ok: row.ok && after && (await t.text('#status')) === 'fixture · 7 skills', detail: `${await t.text('#status')}; ${row.detail}` };
+    });
+    await t.see('Under it, *Filter the skills* and the skills', async () => ({ ok: (await t.p.isVisible('#results')) && (await t.p.isVisible('#filter')) && (await box('#list')).y > (await box('header')).y + (await box('header')).height && (await t.names()).length === 7, detail: `${(await t.names()).length} skills` }));
+  },
   async 'WEB-04'(t) {
     const s = await t.serve(); await t.open(s.url);
     await t.step(1); await t.scan(t.fixture);
@@ -589,6 +619,7 @@ export const CASES = {
     await t.step(1); await t.filter('zzz');
     await t.see('`No skills match "zzz"`', async () => same(await t.text('#no-match'), 'No skills match "zzz"'));
     await t.see('An empty list; no selected skill', async () => ({ ok: (await t.names()).length === 0 && (await t.selected()) === '' }));
+    await t.see('On the right, `Select a skill to read its SKILL.md.`', async () => same(await t.text('#skill'), 'Select a skill to read its SKILL.md.'));
   },
   async 'WEB-22'(t) {
     const s = await t.serve(); await t.open(s.url); await t.scan(t.fixture);
