@@ -28,8 +28,10 @@ Skill: id = `repo:path`, name, description, commit
 - Its repositories: GitHub's list, `/orgs/<owner>/repos` (`/users/<owner>/repos` for a user), 100 a page;
   the pages its public repositories need *at once*, then the next while a page is full (private ones)
 - **Forks** are left out: their skills are their upstream's
-- With `GITHUB_TOKEN`: *one* code search over the whole organization (`org:<owner>`), not one per repository;
-  at the same time as the list; only the repositories it finds are read. Without it: each repository's tree, as above
+- **More than 20** repositories, with `GITHUB_TOKEN`: *one* code search over the whole organization
+  (`org:<owner>`, `user:<owner>`), not one per repository; only the repositories it finds are read
+- Up to 20, or without a token: each repository's **tree**, as a fixed commit is; no code search, which has
+  a tight limit of its own (and the Actions `GITHUB_TOKEN` hardly any)
 - Code search returns at most *1000* files: more `SKILL.md` than that → a *warning*, some may be missing
 - Each repository: the rules above, skills and copies within that repository only
 - Listed: the repositories **with skills**, sorted by `owner/name`, ignoring case; the others are only counted

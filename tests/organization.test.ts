@@ -106,17 +106,48 @@ test('without GITHUB_TOKEN, a user: each repository through its tree; an empty o
   );
 });
 
-test("with GITHUB_TOKEN, a user: code search over the user's repositories", async () => {
-  const recording: Recording = {
-    ...USER,
-    [searchUrl('user:octocat', 1)]: {
+test('with GITHUB_TOKEN, a small owner (up to 20 repositories): each repository through its tree, no code search', async () => {
+  const asked: string[] = [];
+  const recorded = replay(USER); // no code search recorded: asking for one would fail
+  const fetch: Fetch = (url, init) => {
+    asked.push(url);
+    return recorded(url, init);
+  };
+  const result = await scanOrganization(await openOrganization('github.com/octocat', { fetch, token: 'test' }));
+  assert.deepEqual(result.results.map(({ repository, skills }) => [repository.id, skills.map((skill) => skill.name)]), [['octocat/hello', ['greet']]]);
+  assert.deepEqual(result.warnings, []);
+  assert.ok(!asked.some((url) => url.includes('/search/')), asked.join('\n'));
+});
+
+/** What GitHub answers for an owner with this many repositories, none of them a fork; `<owner>/docs` among them. */
+function manyRepositories(owner: string, type: 'Organization' | 'User', count: number): Recording {
+  const names = ['docs', ...Array.from({ length: count - 1 }, (_, i) => `repo-${i + 1}`)];
+  return {
+    [`https://api.github.com/users/${owner}`]: { status: 200, body: { login: owner, type, public_repos: count } },
+    [`https://api.github.com/${type === 'User' ? 'users' : 'orgs'}/${owner}/repos?per_page=100&page=1`]: {
       status: 200,
-      body: { total_count: 1, items: [{ path: '.claude/skills/greet/SKILL.md', repository: { full_name: 'octocat/hello' } }] },
+      body: names.map((name) => ({ full_name: `${owner}/${name}`, default_branch: 'main', fork: false })),
+    },
+    [`https://api.github.com/repos/${owner}/docs/commits/main`]: { status: 200, body: { sha: EXAMPLE_COMMIT } },
+  };
+}
+
+test('with GITHUB_TOKEN, more than 20 repositories: one code search; for a user, over its repositories (`user:`)', async () => {
+  const recording: Recording = {
+    ...manyRepositories('many', 'User', 21),
+    [searchUrl('user:many', 1)]: {
+      status: 200,
+      body: { total_count: 1, items: [{ path: '.claude/skills/greet/SKILL.md', repository: { full_name: 'many/docs' } }] },
+    },
+    [`https://raw.githubusercontent.com/many/docs/${EXAMPLE_COMMIT}/.claude/skills/greet/SKILL.md`]: {
+      status: 200,
+      body: '---\nname: greet\ndescription: Greet the user.\n---\n',
     },
   };
-  const { code, stdout, stderr } = await atlasOn(recording, 'github.com/octocat');
+  // No tree is recorded: the other 20 repositories are never asked for.
+  const { code, stdout, stderr } = await atlasOn(recording, 'github.com/many');
   assert.equal(code, 0, stderr);
-  assert.match(stdout, /^octocat · 1 skill in 1 of 2 repositories\n\noctocat\/hello · 1 skill\ngreet — /);
+  assert.equal(stdout, ['many · 1 skill in 1 of 21 repositories', '', 'many/docs · 1 skill', 'greet — Greet the user.', blob('many/docs', '.claude/skills/greet/SKILL.md')].join('\n'));
 });
 
 test('an empty repository on its own → a clear message, exit code 1', async () => {
@@ -139,15 +170,10 @@ test('more than 1000 SKILL.md files → a warning, and no 11th page', async () =
       },
     ]),
   );
-  const recording: Recording = {
-    'https://api.github.com/users/big': { status: 200, body: { login: 'big', type: 'Organization' } },
-    'https://api.github.com/orgs/big/repos?per_page=100&page=1': { status: 200, body: [{ full_name: 'big/docs', default_branch: 'main', fork: false }] },
-    'https://api.github.com/repos/big/docs/commits/main': { status: 200, body: { sha: EXAMPLE_COMMIT } },
-    ...pages,
-  };
+  const recording: Recording = { ...manyRepositories('big', 'Organization', 21), ...pages };
   const { code, stdout, stderr } = await atlasOn(recording, 'github.com/big');
   assert.equal(code, 0, stderr);
-  assert.equal(stdout, 'big · 0 skills in 0 of 1 repository');
+  assert.equal(stdout, 'big · 0 skills in 0 of 21 repositories');
   assert.equal(stderr, 'warning: code search lists at most 1000 SKILL.md files, and there are 1500: some skills may be missing');
 });
 

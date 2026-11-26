@@ -21,14 +21,15 @@ function scan(id: string, commit: string) {
 }
 /** `./skill-atlas scan github.com/<owner>`: every repository at its default branch, so not pinned. */
 function scanOrganization(owner: string) {
-  if (!token) return Promise.reject(new Error('set GITHUB_TOKEN: an organization is searched in one code search'));
+  if (!token) return Promise.reject(new Error('set GITHUB_TOKEN: each repository of the organization is listed through the API'));
   return promisify(execFile)(ATLAS, ['scan', `github.com/${owner}`], { env: { ...process.env, GITHUB_TOKEN: token } });
 }
 const scans = {
   mps: scan('JetBrains/MPS', MPS),
   android: scan('JetBrains/android', ANDROID),
   koog: scan('JetBrains/koog', KOOG),
-  jetbrains: scanOrganization('JetBrains'),
+  // Small, so through each repository's tree: CI's GITHUB_TOKEN gets hardly any code search.
+  getnao: scanOrganization('getnao'),
 };
 for (const pending of Object.values(scans)) pending.catch(() => {}); // each test reports its own failure
 
@@ -95,32 +96,39 @@ test('JetBrains/koog: test data, weather-retrieval and arithmetic-evaluator, is 
   );
 });
 
-test('the JetBrains organization: its repositories with skills, grouped, sorted ignoring case, the counts adding up', async () => {
-  // The organization changes every day: what holds whatever its repositories hold.
-  const { stdout, stderr } = await scans.jetbrains;
+test('getnao, a small organization: forks left out, grouped and sorted, each repository as its own scan at that commit', async () => {
+  // The organization changes: what holds whatever its repositories hold.
+  const { stdout } = await scans.getnao;
+  // GitHub's own list, asked separately: the repositories that are not forks.
+  const response = await fetch('https://api.github.com/orgs/getnao/repos?per_page=100', { headers: { Authorization: `Bearer ${token}` } });
+  const listed = (await response.json()) as { full_name: string; fork: boolean }[];
+  const own = listed.filter((repository) => !repository.fork).map((repository) => repository.full_name);
+  assert.ok(own.length < listed.length, 'getnao has forks');
+  assert.ok(own.length <= 20, 'small: listed through trees, not code search');
+
   const [header, ...blocks] = stdout.trimEnd().split('\n\n');
-  const match = /^JetBrains · (\d+) skills in (\d+) of (\d+) repositories$/.exec(header);
+  const match = /^getnao · (\d+) skills? in (\d+) of (\d+) repositor(?:y|ies)$/.exec(header);
   assert.ok(match, header);
   const [skills, withSkills, repositories] = match.slice(1).map(Number);
-  assert.ok(repositories > 100 && withSkills > 10 && withSkills <= repositories, header);
+  assert.equal(repositories, own.length, 'forks left out');
+  assert.ok(withSkills >= 1, header);
   assert.equal(blocks.length, withSkills);
   const ids: string[] = [];
-  let listed = 0;
+  let listedSkills = 0;
   for (const block of blocks) {
-    const [title, ...lines] = block.split('\n');
-    const heading = /^(JetBrains\/[\w.-]+) · (\d+) skills?$/.exec(title);
-    assert.ok(heading, title);
-    ids.push(heading[1]);
-    const links = lines.filter((line) => line.startsWith(`  https://github.com/${heading[1]}/blob/`));
-    assert.equal(links.length, Number(heading[2]), title);
-    for (const link of links) assert.match(link, /\/blob\/[0-9a-f]{40}\//, 'pinned to the scanned commit');
-    listed += links.length;
+    const heading = /^(getnao\/[\w.-]+) · (\d+) skills?$/.exec(block.split('\n')[0]);
+    assert.ok(heading, block.split('\n')[0]);
+    const [, id, count] = heading;
+    assert.ok(own.includes(id), `${id} is one of its own repositories`);
+    ids.push(id);
+    listedSkills += Number(count);
+    // The block is what scanning the repository alone, at the same commit, prints.
+    const commit = new RegExp(`^  https://github\\.com/${id}/blob/([0-9a-f]{40})/`, 'm').exec(block)?.[1];
+    assert.ok(commit, `${id}: links pinned to the scanned commit`);
+    const alone = await scan(id, commit);
+    assert.equal(alone.stdout.trimEnd(), block, id);
   }
-  assert.equal(listed, skills);
-  assert.deepEqual(ids, [...ids].sort((a, b) => (a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0)));
-  // A token that sees the private repositories too may find more than code search lists: then some are missing.
-  if (!/code search lists at most 1000 SKILL\.md files/.test(stderr)) {
-    assert.ok(ids.includes('JetBrains/MPS') && ids.includes('JetBrains/koog'), ids.join(', '));
-  }
-  assert.doesNotMatch(stdout, /^weather-retrieval /m, "koog's test data is not a skill here either");
+  assert.equal(listedSkills, skills);
+  const key = (id: string) => id.toLowerCase();
+  assert.deepEqual(ids, [...ids].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0)));
 });

@@ -59,10 +59,14 @@ export async function openGitHub(input: string, options: GitHubOptions): Promise
 /** A repository as GitHub lists it among its owner's. */
 type ListedRepository = { full_name: string; default_branch: string; fork: boolean };
 
+/** Up to this many repositories, an organization is listed through each one's tree; above, through one code search. */
+export const SEARCH_ABOVE = 20;
+
 /**
- * Every repository of an organization (or a user), forks left out, at its default branch. With a
- * token, one code search over the whole organization finds the SKILL.md files, and only the
- * repositories it finds are read; without it, each repository is listed through its tree.
+ * Every repository of an organization (or a user), forks left out, at its default branch. A large
+ * organization, with a token: one code search over the whole organization finds the SKILL.md files,
+ * and only the repositories it finds are read. A small one, or without a token: each repository is
+ * listed through its tree, as a fixed commit is; code search has a tight limit of its own.
  */
 export async function openOrganization(input: string, options: GitHubOptions): Promise<OrganizationSource> {
   const name = parseGitHubOwnerUrl(input);
@@ -75,12 +79,12 @@ export async function openOrganization(input: string, options: GitHubOptions): P
   if (typeof owner.login !== 'string') throw new AtlasError(notFound);
   const organization = owner.type === 'Organization';
   const warnings: string[] = [];
-  // The list and the search at the same time: neither needs the other.
-  const [listed, found] = await Promise.all([
-    listRepositories(github, `${API}/${organization ? 'orgs' : 'users'}/${owner.login}/repos`, owner.public_repos ?? 0),
-    options.token ? searchOwner(github, `${organization ? 'org' : 'user'}:${owner.login}`, warnings) : undefined,
-  ]);
+  const listed = await listRepositories(github, `${API}/${organization ? 'orgs' : 'users'}/${owner.login}/repos`, owner.public_repos ?? 0);
   const repositories = listed.filter((repository) => !repository.fork);
+  const found =
+    options.token && repositories.length > SEARCH_ABOVE
+      ? await searchOwner(github, `${organization ? 'org' : 'user'}:${owner.login}`, warnings)
+      : undefined;
   return {
     organization: { id: owner.login, url: `https://github.com/${owner.login}` },
     repositories: repositories.length,
@@ -91,7 +95,9 @@ export async function openOrganization(input: string, options: GitHubOptions): P
         open: async () => {
           const sha = await commit(github, id, branch);
           const repositoryWarnings: string[] = [];
-          const paths = found?.get(id) ?? (await treePaths(github, id, sha, repositoryWarnings));
+          // With a token, the whole tree, a directory at a time if need be; without, the skill roots of a large one.
+          const paths =
+            found?.get(id) ?? (options.token ? await wholeTree(github, id, sha) : await treePaths(github, id, sha, repositoryWarnings));
           return source(github, id, sha, paths, repositoryWarnings);
         },
       })),
