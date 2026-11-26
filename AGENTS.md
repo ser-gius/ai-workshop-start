@@ -7,6 +7,8 @@ Integration tests for every case in the spec.
 - All tests pass locally
 - The edge cases in the spec are covered, with tests for them
 - The CI build is green
+- A demo video attached to the PR, when applicable (a change to what the web view shows): see the
+  [record-demo](.claude/skills/record-demo/SKILL.md) skill
 
 ## Commands
 - `npm ci`: first, in a fresh checkout
