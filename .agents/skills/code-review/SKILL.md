@@ -8,6 +8,7 @@ description: Review a pull request or a diff in Skill Atlas with a short summary
 A short review: a few lines of summary, then one inline comment per problem.
 Only real problems: a bug, a broken spec rule, a missing test. No style nits that the
 typecheck or the tests would not catch, no praise, no restating the diff.
+Never review the notes in `memory/` (see [update-memory](../update-memory/SKILL.md)): skip them.
 
 ## Before commenting
 1. Read [spec/](../../../spec/) and [AGENTS.md](../../../AGENTS.md): the change must keep the spec
