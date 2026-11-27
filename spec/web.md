@@ -40,8 +40,8 @@ Every text stays **inside its card**, even a long one with no spaces; the page n
 - **Wrapped**: `No skills match "<filter>"`, a word in a description, a repository's heading, a warning,
   `also in <paths>`, the selected skill's name and link, an error in the header
 - **Cut with `…`**, on one line, the whole text on hover: what was scanned in the header
-  (`Scanning /tmp/deep/deep/deep/…`, `JetBrains/kotlin · 6 skills`), so the header stays one row; and an
-  organization's name and top repositories in its card
+  (`Scanning /tmp/deep/deep/deep/…`, `JetBrains/kotlin · 6 skills`), beside the field, in at most 40%
+  of the row, so the header stays one row; and an organization's name and top repositories in its card
 ## Filter
 A **filter field** above the skill list narrows it *as you type*, no new scan
 - Its **words** (split on spaces) are matched against a skill's **name** and whole **description**:

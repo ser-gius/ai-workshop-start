@@ -223,8 +223,9 @@ const PAGE = `<!doctype html>
   .header-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
   .header-row h1 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
   .header-row #form { flex: 1 1 360px; }
-  /* What was scanned, on one line: a long link is cut with …, the whole of it on hover; an error wraps. */
-  .header-row #status { margin-top: 0; min-width: 0; max-width: 100%; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* What was scanned, on one line beside the field: a long link is cut with …, the whole of it on hover; an error wraps.
+     At most 40% of the row, so it shrinks beside the field instead of going onto a row of its own. */
+  .header-row #status { flex: 0 1 auto; margin-top: 0; min-width: 0; max-width: 40%; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .header-row #status.error { font-family: var(--sans); white-space: normal; overflow-wrap: anywhere; }
   /* The skills and their filter: only once a scan has answered. */
   main[hidden] { display: none; }

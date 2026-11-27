@@ -28,6 +28,12 @@ async function scan(page: Page, link: string) {
   await page.locator('#scan').click();
 }
 
+/** `#status` sits on the field's row, beside it, not on a row of its own under it. */
+async function besideTheField(page: Page) {
+  const [form, status] = await Promise.all([page.locator('#form'), page.locator('#status')].map((l) => l.boundingBox()));
+  expect(status!.y, 'what was scanned: on the field\'s row').toBeLessThan(form!.y + form!.height);
+  expect(status!.x, 'what was scanned: beside the field').toBeGreaterThanOrEqual(form!.x + form!.width);
+}
 /** The page is no wider than the window: nothing makes it scroll sideways. */
 async function noSidewaysScroll(page: Page) {
   const { scroll, window } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, window: innerWidth }));
@@ -113,6 +119,7 @@ test('`Scanning <a long link>…`: cut with … in the header, the whole of it o
   await inside(page, '#status', 'header');
   expect(await status.evaluate((node) => node.scrollWidth > node.clientWidth), 'cut, on one line').toBe(true);
   expect(await status.evaluate((node) => getComputedStyle(node).textOverflow)).toBe('ellipsis');
+  await besideTheField(page);
   await noSidewaysScroll(page);
 });
 
@@ -140,5 +147,8 @@ test('an organization: a long repository heading and a long warning stay inside 
   await expect(page.locator('#org-top a')).toHaveAttribute('title', name);
   await expect(page.locator('#org-name')).toHaveAttribute('title', 'github.com/octo');
   await inside(page, '#warnings li', 'header');
+  // What was scanned, `<a long repository> · 1 skill`: cut beside the field, on its row.
+  await inside(page, '#status', 'header');
+  await besideTheField(page);
   await noSidewaysScroll(page);
 });

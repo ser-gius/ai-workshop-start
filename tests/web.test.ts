@@ -861,6 +861,7 @@ test('a long text stays inside its card: wrapped, or cut with … and whole on h
   assert.doesNotMatch(page, /#skills \.name \{[^}]*nowrap/);
   assert.match(page, /#no-match \{[^}]*overflow-wrap: anywhere/, '`No skills match` wraps');
   assert.match(page, /\.header-row #status \{[^}]*text-overflow: ellipsis/, 'what was scanned: cut with …');
+  assert.match(page, /\.header-row #status \{[^}]*flex: 0 1 auto;[^}]*max-width: 40%/, 'what was scanned: shrinks beside the field, never on a row of its own');
   assert.match(page, /\.header-row #status\.error \{[^}]*overflow-wrap: anywhere/, 'an error wraps');
 
   const deep = '/tmp/long/' + 'deep/'.repeat(60);
