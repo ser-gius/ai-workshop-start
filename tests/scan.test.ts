@@ -12,7 +12,7 @@ import { openGitHub } from '../src/core/github.ts';
 import { parseSkill } from '../src/core/parse.ts';
 import { scan } from '../src/core/scan.ts';
 import { replay } from '../src/core/replay.ts';
-import { atlas, CLI, EXAMPLE_COMMIT, FIXTURE, history, lockedFixture } from './helpers.ts';
+import { atlas, claudeAnswering, CLI, EXAMPLE_COMMIT, FIXTURE, history, lockedFixture, stubClaude } from './helpers.ts';
 
 const fixture = await atlas(['scan', FIXTURE]);
 const example = await atlas(['scan', 'github.com/JetBrains/example']);
@@ -82,6 +82,16 @@ test('the CLI prints the result at once and stores nothing', (t) => {
   assert.equal(scanned.status, 0, scanned.stderr);
   assert.equal(scanned.stdout, `${fixture.stdout}\n`);
   assert.deepEqual(readdirSync(cwd), []);
+});
+
+test('the CLI does not ask for topics: `scan` and `help` never run `claude`', (t) => {
+  const claude = stubClaude(t, claudeAnswering({ topics: [{ title: 'All', skills: ['commits'] }] }));
+  const env = { ...process.env, PATH: `${claude.dir}:${process.env.PATH}` };
+  for (const args of [['scan', FIXTURE], ['help']]) {
+    const run = spawnSync(process.execPath, [CLI, ...args], { env, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+  }
+  assert.equal(claude.args(), undefined, 'not run');
 });
 
 test('unreachable repository → a clear message, exit code 1', async () => {

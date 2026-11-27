@@ -61,6 +61,9 @@ test('scan: a repository, picking a skill, unfolding a description', async ({ pa
   await expect(skills(page).locator('.updated')).toHaveCount(7);
   await expect(skills(page).first().locator('.updated')).toHaveText('2026-04-02');
   await expect(page.locator('#skill .updated')).toHaveText('updated 2026-04-02');
+  // The skills by topic above the list: the heuristic's here, the server asks no model.
+  await expect(page.locator('#topics .topic-title')).toHaveText(['build', 'analysis', 'Other']);
+  await expect(page.locator('#topics .topic').first().locator('.chips > *')).toHaveText(['build-bump-gradle-version', 'build-tools-add-test-federation-annotations-to-integration-tests', 'build-tools-bump-gradle-api', '+1']);
   await expect(page).toHaveScreenshot('scan.png');
 
   await skills(page).nth(2).locator('.name').click(); // the name: a click on a fold opens it, and does not select

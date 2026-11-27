@@ -54,6 +54,17 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
     ignoring case: the name without the owner, in monospace, linked, and `N skills`; then `+<n> more`
     when there are more. With 3 or fewer: `<n> with skills`, no `+<n> more`; with none: `No repository with skills`
   - Hidden for a repository or a local directory, and on a failure (its message shows instead)
+## Topics
+Above the skill list, a **card per topic** ([analysis](analysis.md#topics)), in the topics' order:
+```
+Testing and test infrastructure      testing  writing-tests  driver-ui-tests  +5
+Builds, modules and dependencies     build-bump-gradle-version  module-dependencies  +5
+```
+- Its **title** in bold; under it, on one row, the first *3* skill names as monospace **chips**, in the list's
+  order, then `+<n>` for the rest. A name twice (two repositories) → one chip. Every skill's name on hover
+- `./skill-atlas serve` asks the model; a server started without one (the visual tests) uses the heuristic
+- An organization: one set of cards across its repositories
+- No skills → no cards; a new scan replaces them; the filter does not change them
 ## Filter
 A **filter field** above the skill list narrows it *as you type*, no new scan
 - Its **words** (split on spaces) are matched against a skill's **name** and whole **description**:
@@ -81,6 +92,8 @@ A **filter field** above the skill list narrows it *as you type*, no new scan
 `GET /api/scan?repo=<link>` → JSON `{ repository, skills, warnings }`; a skill has `name`,
 `description` (on one line), `summary` (its first sentence), `path`, `link`, `copies`, `text`, the SKILL.md,
 and `updated`, the time it last changed (ISO 8601 in UTC, `2026-11-20T09:14:03Z`), `null` without a date
+- `topics`: `[{ title, skills }]`, each skill by its `id`, every skill in exactly one; `topicsBy`: `model` or
+  `heuristic`. An organization's are across its repositories
 - No link, or an unreachable repository → 400 `{ error }`
 - A link too long for a request (its line and headers over 16 KB: Node rejects it before the server sees it)
   → 431 `{ error: 'The link is too long' }`; the page's own link (`/?repo=`, not `/api/`) that long → 431 with the page

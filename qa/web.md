@@ -358,3 +358,20 @@ On `<checkout>/fixture` unless a case says otherwise.
 
 **Should see**
 - Step 2: the new description at once: every scan reads afresh; `git status` in the checkout is clean
+
+## Topics
+
+### WEB-30 · The skills by topic
+*With `claude` on the PATH, the cards are Haiku's (a few seconds more for the scan); without it, the heuristic's.*
+
+**Steps**
+1. Scan `<checkout>/fixture`; look above the skill list
+2. `curl -s "http://127.0.0.1:4173/api/scan?repo=$(pwd)/fixture"`; look at `topics` and `topicsBy`
+3. Back on the page, scanned as in step 1: type `use before` in the filter
+
+**Should see**
+- Step 1: a card per topic: its title in bold, then on one row up to 3 skill names as monospace chips, then
+  `+<n>` for the rest; the 7 skills counted once across the cards. Without `claude`: one card, `Other`,
+  `aspect-generator` `code-style` `commits` `+4`
+- Step 2: `topicsBy` is `model` (with `claude`) or `heuristic`; each of the 7 skills' `id` in exactly one topic
+- Step 3: the cards as they were

@@ -795,4 +795,24 @@ export const CASES = {
     await t.see('`git status` in the checkout unchanged', before === after, after);
     rmSync(dir, { recursive: true, force: true });
   },
+  async 'WEB-30'(t) {
+    const s = await t.serve(); await t.open(s.url);
+    await t.step(1); await t.scan(t.fixture);
+    const cards = () => t.p.$$eval('#topics .topic', (els) => els.map((e) => [e.querySelector('.topic-title').textContent,
+      ...[...e.querySelectorAll('.chips > *')].map((c) => c.textContent)]));
+    const shown = await cards();
+    const counted = shown.reduce((sum, [, ...chips]) => sum + chips.reduce((n, c) => n + (/^\+\d+$/.test(c) ? +c.slice(1) : 1), 0), 0);
+    await t.see('A card per topic, above the list: a bold title, at most 3 chips, then `+<n>`', async () => ({
+      ok: shown.length > 0 && shown.every(([title, ...chips]) => title && chips.filter((c) => !/^\+\d+$/.test(c)).length <= 3)
+        && await t.p.$eval('#topics', (e) => e.nextElementSibling?.id === 'list' && getComputedStyle(e.querySelector('.topic-title')).fontWeight >= 700),
+      detail: JSON.stringify(shown) }));
+    await t.see('The 7 skills counted once across the cards', counted === 7, `${counted}: ${JSON.stringify(shown)}`);
+    await t.step(2); const a = await t.api(`${s.url}api/scan?repo=${encodeURIComponent(t.fixture)}`);
+    const ids = (a.json?.topics ?? []).flatMap((topic) => topic.skills);
+    await t.see('`topicsBy`: `model` or `heuristic`', ['model', 'heuristic'].includes(a.json?.topicsBy), a.json?.topicsBy);
+    if (a.json?.topicsBy === 'heuristic') await t.see('Without `claude`: one card, `Other` `aspect-generator` `code-style` `commits` `+4`', () => same(shown, [['Other', 'aspect-generator', 'code-style', 'commits', '+4']]));
+    await t.see('Each skill\'s `id` in exactly one topic', () => same([...ids].sort(), a.json.skills.map((k) => k.id).sort()));
+    await t.step(3); await t.open(s.url); await t.scan(t.fixture); await t.filter('use before');
+    await t.see('The cards as they were', async () => same(await cards(), shown));
+  },
 };
