@@ -208,9 +208,9 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
 3. Scan `https://github.com/JetBrains` (many repositories with skills)
 
 **Should see**
-- Step 1: *Scan the organization*, above the skills; `github.com/getnao` and a pill `…`; the progress bar moving
-  (no percentage)
-- Step 2: the pill `<m> repositories` (forks left out), the bar **full**; `<k> with skills` and the
+- Step 1: *Scan the organization*, the only thing under the header; `github.com/getnao` and a pill `…`; the
+  progress bar moving (no percentage)
+- Step 2: the card above the skills; the pill `<m> repositories` (forks left out), the bar **full**; `<k> with skills` and the
   repositories, most skills first (a tie by name, ignoring case), each as its name without `getnao/`, in
   monospace, linked, with `N skills`; with 3 or fewer, no `among them` and no `+<n> more`
 - Step 3: `<k> with skills, among them`, the **top 3**, then `+<k − 3> more`

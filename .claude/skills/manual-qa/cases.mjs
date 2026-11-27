@@ -538,8 +538,12 @@ export const CASES = {
       const state = await t.p.evaluate(() => ({ hidden: document.getElementById('organization').hidden, name: document.getElementById('org-name').textContent, pill: document.getElementById('org-count').textContent, running: document.getElementById('org-progress').classList.contains('running'), now: document.getElementById('org-progress').getAttribute('aria-valuenow') }));
       return { ok: !state.hidden && state.name === 'github.com/getnao' && state.pill === '…' && state.running && state.now === null, detail: JSON.stringify(state) };
     });
-    await t.see('The card above the skills', async () => ({ ok: (await t.p.locator('#organization').boundingBox()).y < (await t.p.locator('#list').boundingBox()).y }));
     await t.step(2); await t.scanned();
+    // While it scans, only the header and the card show (spec/web.md): the skills, to be under it, come with the answer.
+    await t.see('The card above the skills', async () => {
+      const card = await t.p.locator('#organization').boundingBox(), list = await t.p.locator('#list').boundingBox();
+      return { ok: !!card && !!list && card.y < list.y, detail: `card ${JSON.stringify(card)}, list ${JSON.stringify(list)}` };
+    });
     const own = await ownRepositories(t, 'getnao');
     await t.see('The pill `<m> repositories`, forks left out', async () => same(await t.text('#org-count'), `${own.length} repositories`));
     await t.see('The bar full', async () => ({ ok: await t.p.evaluate(() => { const e = document.getElementById('org-progress'); return !e.classList.contains('running') && e.getAttribute('aria-valuenow') === '100'; }) }));
