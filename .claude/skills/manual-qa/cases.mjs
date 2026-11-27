@@ -220,13 +220,16 @@ export const CASES = {
     await t.step(2); const f = await t.sh('./skill-atlas scan fixture 2>/dev/null');
     const fixture = f.stdout.trimEnd().split('\n').slice(1).reduce((all, l) => (l.startsWith(' ') ? all.at(-1)?.push(l) : all.push([l]), all), []);
     const days = [];
+    const held = (d) => (d.expected === null ? !/^  updated /.test(d.last) : d.last === d.expected);
+    const shallow = (await t.sh('cat "$(git rev-parse --git-path shallow)" 2>/dev/null', { show: false })).stdout.split('\n').filter(Boolean);
     for (const b of fixture) {
       const folder = /\/fixture\/(.*)\/SKILL\.md$/.exec(b[1] ?? '')?.[1];
-      const day = (await t.sh(`TZ=UTC git log -1 --date=format-local:%Y-%m-%d --format=%cd -- fixture/${folder}`, { show: false })).stdout.trim();
-      days.push({ name: nameOf(b[0]), last: b.at(-1), expected: `  updated ${day}` });
+      const [commit, day] = (await t.sh(`TZ=UTC git log -1 --date=format-local:%Y-%m-%d --format='%H %cd' -- fixture/${folder}`, { show: false })).stdout.trim().split(' ');
+      // A shallow checkout: a skill last changed where its history stops has no date (spec/analysis.md)
+      days.push({ name: nameOf(b[0]), last: b.at(-1), expected: shallow.includes(commit) ? null : `  updated ${day}` });
     }
     await t.see('Each skill\'s last line is `updated <YYYY-MM-DD>`, the day of the latest commit to its folder (UTC)',
-      days.length === 7 && days.every((d) => d.last === d.expected), days.filter((d) => d.last !== d.expected).map((d) => `${d.name}: ${d.last.trim()} vs ${d.expected.trim()}`).join('; ') || `${days.length} skills`);
+      days.length === 7 && days.every(held), days.filter((d) => !held(d)).map((d) => `${d.name}: ${d.last.trim()} vs ${d.expected?.trim() ?? 'no date (shallow checkout)'}`).join('; ') || `${days.length} skills`);
     await t.step(3); const p = await t.sh('rm -rf /tmp/qa-plain && cp -r fixture /tmp/qa-plain && ./skill-atlas scan /tmp/qa-plain');
     await t.see('Outside git: no `updated` line at all', () => ({ ok: p.code === 0 && p.lines.length > 1 && !/updated/.test(p.stdout), detail: p.stdout.slice(0, 300) }));
     await t.see('And no warning about it', () => ({ ok: p.stderr.trim().split('\n').filter(Boolean).every((l) => /release-checklist.*malformed front matter/.test(l)), detail: p.stderr.slice(0, 300) }));
@@ -722,7 +725,7 @@ export const CASES = {
     await t.p.type('#filter', ' before', { delay: 90 }); await t.pause(400);
     const address = t.p.url();
     await t.see('`?repo=…&filter=use+before`, updated as you type', new URL(address).searchParams.get('filter') === 'use before' && new URL(address).searchParams.get('repo') === t.fixture && partial === 'use', `${address} (while typing: ${partial})`);
-    await t.step(2); await t.open(address); await t.p.waitForSelector('#skills li[role="option"]', { timeout: 60_000 });
+    await t.step(2); await t.open(address); await t.p.waitForSelector('#skills li[role="option"]:not([hidden])', { timeout: 60_000 });
     await t.see('The scan and the filter at once: `3 of 7`', async () => ({ ok: (await t.text('#count')) === '3 of 7' && (await t.p.inputValue('#filter')) === 'use before', detail: await t.text('#count') }));
     await t.step(3); await t.filter('');
     await t.see('No `filter=`, `repo=` stays', () => { const u = new URL(t.p.url()); return { ok: !u.searchParams.has('filter') && u.searchParams.get('repo') === t.fixture, detail: t.p.url() }; });

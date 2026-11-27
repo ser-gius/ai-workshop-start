@@ -214,4 +214,5 @@ split-jvm-nonjvm — Splits a class or several classes in the common source set 
   copy in `.claude` changed, later than its `.agents` folder (2026-04-14). Every skill's block ends with `updated <day>`
 - Step 2: each skill's last line is `updated <YYYY-MM-DD>`: the day of the latest commit to its folder in this
   checkout (`git log -1 --format=%cs -- fixture/.claude/skills/commits` for `commits`, in UTC)
+  In a shallow clone, a skill whose latest commit is where the history stops (`.git/shallow`) has no `updated` line
 - Step 3: outside git: no `updated` line at all, and no warning about it
