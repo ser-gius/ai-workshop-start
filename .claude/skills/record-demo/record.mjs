@@ -31,7 +31,7 @@ const CASES = {
       await h.scan('https://github.com/JetBrains/kotlin');
       await h.skills();
       await h.pause(1500);
-      await p.locator('#skills li').nth(2).click();
+      await p.locator('#skills li .name').nth(2).click();
       await h.pause(1500);
       const fold = p.locator('#skills details.description summary').first();
       if (await fold.count()) { await fold.click(); await h.pause(2000); await p.locator('#skills details[open] .whole').first().click(); }

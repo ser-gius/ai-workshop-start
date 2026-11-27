@@ -57,13 +57,13 @@ test('fixture: the local directory, then the filter `use before`', async ({ page
 test('scan: a repository, picking a skill, unfolding a description', async ({ page }) => {
   await scan(page, DEMO_REPOSITORY);
   await expect(skills(page)).toHaveCount(7);
-  // Each skill's day under its name, and the selected one's under its link.
+  // Each skill's day a chip beside its name, and the selected one's under its link.
   await expect(skills(page).locator('.updated')).toHaveCount(7);
   await expect(skills(page).first().locator('.updated')).toHaveText('2026-04-02');
   await expect(page.locator('#skill .updated')).toHaveText('updated 2026-04-02');
   await expect(page).toHaveScreenshot('scan.png');
 
-  await skills(page).nth(2).click();
+  await skills(page).nth(2).locator('.name').click(); // the name: a click on a fold opens it, and does not select
   await expect(skills(page).nth(2)).toHaveAttribute('aria-selected', 'true');
   await expect(page).toHaveScreenshot('scan-picked.png');
 

@@ -16,8 +16,13 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - No skill selected (no match, or no skills) → the SKILL.md view says `Select a skill to read its SKILL.md.`
 - The repository and its skill count, then **every skill**: name, description and the **day** it last changed
   ([analysis](analysis.md#when-a-skill-last-changed)), sorted by name
-  - The day, `2026-11-20` (UTC), under the name; its whole time on hover
-    (`Last updated 2026-11-20 09:14:03 UTC`). No date → nothing there
+  - A skill is a **stacked row**: its name, in *bold*, and its day beside it on the same line; its description
+    under them, the list's whole width. A thin line between two skills shown one after the other
+  - No line above the first skill shown, nor under a repository's heading, with a filter too (the skills
+    it hides do not count: `?filter=use before` on the fixture → none above `code-style`)
+  - No line next to the hovered or the selected skill, above it or under it
+  - The day, `2026-11-20` (UTC), a small muted **chip**; its whole time on hover
+    (`Last updated 2026-11-20 09:14:03 UTC`). No date → no chip
 - A description is **trimmed** to its first sentence, on one line, at most *two lines* on screen
   (a long sentence too); when there is more (a second sentence, or a sentence cut at two lines), it is
   **foldable**: `▸` shows it, a click unfolds the whole description (`▾`), another folds it.
@@ -66,6 +71,9 @@ A **filter field** above the skill list narrows it *as you type*, no new scan
   it has words, else `7 skills`
 - A match is **highlighted**, in the name and in the description: every occurrence of every word,
   case-insensitive (`test` highlights `teSt` and `Test`)
+  - A letter whose lower case is longer does not shift it: after `İİİİ` (Turkish capital dotted I, `i̇` in lower case),
+    `capitals` highlights `capitals`, not `tals fir`; the snippet starts where it should too.
+    A match in part of such a letter highlights the whole letter (`i` in `İstanbul` → `[İ]stanbul`)
 - While a word is in the description, the skill shows a **snippet** of it instead, on one line: from the start of
   a word at most 30 characters before the first match, to at most 80 after it, `…` where it is cut;
   a match in the name only → the description as without a filter

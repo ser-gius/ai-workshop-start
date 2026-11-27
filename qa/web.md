@@ -179,7 +179,7 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
 3. Scan `/tmp/qa-plain` (from CLI-19: the fixture outside git)
 
 **Should see**
-- Step 1: each skill's day, `YYYY-MM-DD`, under its name; on hover,
+- Step 1: each skill's day, `YYYY-MM-DD`, a small chip beside its name, its description under them; on hover,
   `Last updated <day> <hh:mm:ss> UTC`. On the right, under the link, `updated <day>`: the same day
 - Step 2: its own `updated <day>`, as `./skill-atlas scan` prints it
 - Step 3: no day anywhere, no warning
