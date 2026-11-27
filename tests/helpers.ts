@@ -1,7 +1,8 @@
 // Runs the commands the way the CLI does, with GitHub answering from EXAMPLE below.
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { run } from '../src/commands.ts';
 import { openGitHub, openOrganization, parseGitHubOwnerUrl, parseGitHubUrl } from '../src/core/github.ts';
@@ -231,3 +232,26 @@ export function lockedFixture(t: { after(fn: () => void): void }, modes: Record<
   });
   return process.getuid?.() === 0 ? { root, skip: 'root reads every folder' } : { root };
 }
+
+/**
+ * A `claude` of the test's own, in a directory of its own: it saves its arguments and stdin next to it,
+ * then runs `body` (sh). Returns its path and what it was asked.
+ */
+export function stubClaude(t: Pick<TestContext, 'after'>, body: string) {
+  const dir = mkdtempSync(join(tmpdir(), 'skill-atlas-claude-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const command = join(dir, 'claude');
+  writeFileSync(command, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/args"\npwd -P > "${dir}/cwd"\ncat > "${dir}/stdin"\n${body}\n`);
+  chmodSync(command, 0o755);
+  const read = (name: string) => {
+    try {
+      return readFileSync(join(dir, name), 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
+  return { dir, command, args: () => read('args')?.trim().split('\n'), stdin: () => read('stdin'), cwd: () => read('cwd')?.trim() };
+}
+
+/** A stub's body that answers this JSON. */
+export const claudeAnswering = (answer: unknown) => `cat <<'EOF'\n${JSON.stringify(answer)}\nEOF`;
