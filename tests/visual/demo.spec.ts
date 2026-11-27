@@ -118,3 +118,29 @@ test('link: `?repo=…&filter=gradle` opens the filtered view at once', async ({
   await expect(page.locator('#count')).toHaveText(/^\d+ of 7$/);
   await expect(page).toHaveScreenshot('link.png');
 });
+
+test('keyboard: Tab into the skills, the arrow keys, Enter selects; a fold too', async ({ page }) => {
+  await scan(page, FIXTURE_COPY);
+  await expect(page.locator('#count')).toHaveText('7 skills');
+  const focused = page.locator('#skills li[role="option"]:focus');
+
+  await page.locator('#filter').focus();
+  await page.keyboard.press('Tab');
+  await expect(focused.locator('.name')).toHaveText('aspect-generator'); // one Tab stop: the selected skill
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown', { delay: 150 });
+  await expect(focused.locator('.name')).toHaveText('release-checklist'); // no fold, still reached
+  await expect(page.locator('#skill h2')).toHaveText('aspect-generator'); // the focus alone selects nothing
+  await expect(page).toHaveScreenshot('keyboard-focused.png');
+
+  await page.keyboard.press('Enter');
+  await expect(skills(page).nth(4)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#skill h2')).toHaveText('release-checklist');
+  await expect(page).toHaveScreenshot('keyboard-selected.png');
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Tab'); // reviews' fold
+  await page.keyboard.press('Enter');
+  await expect(skills(page).nth(5).locator('details.description')).toHaveAttribute('open', '');
+  await expect(page.locator('#skill h2')).toHaveText('release-checklist'); // unfolding keeps the selection
+  await expect(page).toHaveScreenshot('keyboard-unfolded.png');
+});

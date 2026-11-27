@@ -24,6 +24,7 @@ Cases play one after another in a single video, in the order you give them. `--o
 | `scan` | `JetBrains/kotlin`: its skills, picking one, unfolding a description | ~10 s |
 | `filter` | the skill filter on `JetBrains/kotlin`: `gradle`, then `gradle version` | ~12 s |
 | `org` | the `JetBrains` organization: its card, grouped skills, filtering `review` across it | ~35 s |
+| `keyboard` | the fixture with the keyboard: Tab into the skills, the arrow keys, Enter selects, a fold | ~10 s |
 | `link` | `?repo=…&filter=gradle` opening the filtered view at once | ~5 s |
 
 The GitHub cases scan live repositories (not fixed commits), so counts change over time. The `org`

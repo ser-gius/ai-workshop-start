@@ -382,6 +382,26 @@ export const CASES = {
     await t.step(2); await t.click('reviews');
     await t.see('`also in .claude/skills/reviews/SKILL.md`', async () => same(await t.text('#skill .copies'), 'also in .claude/skills/reviews/SKILL.md'));
   },
+  async 'WEB-32'(t) {
+    const s = await t.serve(); await t.open(s.url); await t.scan(t.fixture);
+    const focused = () => t.p.evaluate(() => document.activeElement.closest('li[role="option"]')?.querySelector('.name').textContent ?? document.activeElement.tagName);
+    const ring = () => t.p.evaluate(() => { const a = document.activeElement; return a.matches(':focus-visible') && getComputedStyle(a).outlineStyle !== 'none'; });
+    await t.step(1); await t.p.focus('#filter'); await t.p.keyboard.press('Tab'); await t.pause(400);
+    await t.see('A ring on `aspect-generator`, the selected skill', async () => ({ ok: (await focused()) === 'aspect-generator' && (await ring()) && (await t.selected()) === 'aspect-generator', detail: await focused() }));
+    await t.step(2); for (let i = 0; i < 4; i++) { await t.p.keyboard.press('ArrowDown'); await t.pause(300); }
+    await t.see('The ring on `release-checklist`; `aspect-generator` stays selected', async () => ({ ok: (await focused()) === 'release-checklist' && (await ring()) && (await t.selected()) === 'aspect-generator', detail: `${await focused()}, selected ${await t.selected()}` }));
+    await t.step(3); await t.p.keyboard.press('Enter'); await t.pause(400);
+    await t.see('`release-checklist` selected, its SKILL.md shows', async () => ({ ok: (await t.selected()) === 'release-checklist' && (await t.text('#skill pre.skill-md')).includes('release-checklist') }));
+    await t.step(4);
+    const top = () => t.p.evaluate(() => scrollY);
+    const before = await top();
+    await t.p.keyboard.press('End'); await t.pause(300);
+    const end = await focused();
+    await t.p.keyboard.press('ArrowUp'); await t.pause(300); await t.p.keyboard.press(' '); await t.pause(400);
+    await t.see('End → `run-tests`, ↑ → `reviews`; Space selects `reviews`; no scroll', async () => ({ ok: end === 'run-tests' && (await focused()) === 'reviews' && (await t.selected()) === 'reviews' && (await top()) === before, detail: `${end}, ${await focused()}, selected ${await t.selected()}, scroll ${before} → ${await top()}` }));
+    await t.step(5); await t.p.keyboard.press('Tab'); await t.p.keyboard.press('Enter'); await t.pause(600);
+    await t.see("`reviews`' fold unfolds; `reviews` stays selected", async () => ({ ok: (await t.item('reviews').locator('details.description').evaluate((d) => d.open)) && (await t.selected()) === 'reviews', detail: await t.selected() }));
+  },
   async 'WEB-06'(t) {
     const dir = join(mkdtempSync(join(tmpdir(), 'qa-')), 'qa-fixture');
     await t.step(1, dir); await t.sh(`cp -r fixture ${dir}`);

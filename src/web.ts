@@ -244,6 +244,8 @@ const PAGE = `<!doctype html>
   #skills li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; align-items: baseline; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
   #skills li:hover { background: #eeece6; }
   #skills li[aria-selected="true"] { background: var(--tile); box-shadow: inset 3px 0 0 var(--accent); }
+  #skills li[role="option"]:focus { outline: none; }
+  #skills li[role="option"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   #skills .name { grid-column: 1; grid-row: 1; font: 15px/1.5 var(--mono); white-space: nowrap; }
   #skills .description, #skills .snippet { grid-column: 2; grid-row: 1 / span 2; color: var(--muted); font-size: 14px; min-width: 0; }
   #skills .snippet { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -394,12 +396,14 @@ function fold(short, text) {
 function nothingSelected() {
   selected = null;
   for (const item of $('skills').querySelectorAll('li[role="option"]')) item.setAttribute('aria-selected', 'false');
+  tabStop(null);
   $('skill').replaceChildren(el('p', 'placeholder', 'Select a skill to read its SKILL.md.'));
 }
 
 function show(skill, item) {
   selected = { skill, item };
   for (const other of $('skills').querySelectorAll('li[role="option"]')) other.setAttribute('aria-selected', String(other === item));
+  tabStop(item);
   const view = $('skill');
   const title = el('div', 'card-title');
   title.append($('file-icon').content.cloneNode(true), el('h2', '', skill.name));
@@ -428,11 +432,38 @@ function count(n, one, many) {
   return n + ' ' + (n === 1 ? one : many || one + 's');
 }
 
-// Each skill, its name and description; a click selects it.
+// The list is one Tab stop, as a listbox: this skill; the others are reached with the arrow keys.
+function tabStop(item) {
+  for (const other of $('skills').querySelectorAll('li[role="option"]')) other.tabIndex = other === item ? 0 : -1;
+}
+
+// The keys of a listbox: ↓ ↑ Home End move the focus among the skills shown, Enter or Space selects
+// the focused one. Keys on a fold inside a skill are the fold's, but the arrows still move.
+function onListKey(event) {
+  const item = event.target.closest('li[role="option"]');
+  if (!item) return;
+  const shown = [...$('skills').querySelectorAll('li[role="option"]:not([hidden])')];
+  const at = shown.indexOf(item);
+  const next = { ArrowDown: shown[at + 1], ArrowUp: shown[at - 1], Home: shown[0], End: shown[shown.length - 1] };
+  if (event.key in next) {
+    event.preventDefault();
+    const to = next[event.key] || item;
+    tabStop(to);
+    to.focus();
+  } else if ((event.key === 'Enter' || event.key === ' ') && event.target === item) {
+    event.preventDefault();
+    const entry = scanned.entries.find((candidate) => candidate.item === item);
+    show(entry.skill, item);
+  }
+}
+$('skills').addEventListener('keydown', onListKey);
+
+// Each skill, its name and description; a click selects it, and so do the keys above.
 function list(skills, group) {
   for (const skill of skills) {
     const item = el('li');
     item.setAttribute('role', 'option');
+    item.tabIndex = -1;
     item.append(el('div', 'name', skill.name));
     if (skill.description) item.append(description(skill));
     item.append(el('div', 'snippet'));
@@ -517,6 +548,10 @@ function applyFilter() {
   } else if (!selected || selected.item.hidden) {
     const first = scanned.entries.find(({ item }) => !item.hidden);
     show(first.skill, first.item);
+  } else {
+    // The skill last reached with the arrows is filtered out: Tab goes to the selected one.
+    const stop = $('skills').querySelector('li[role="option"][tabindex="0"]');
+    if (!stop || stop.hidden) tabStop(selected.item);
   }
 }
 

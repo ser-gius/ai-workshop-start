@@ -121,6 +121,7 @@ async function openPage(t: { after(fn: () => void): void }, query: string) {
   const { document } = dom.window;
   const $ = (id: string) => document.getElementById(id) as HTMLElement & { value: string; disabled: boolean };
   const page = {
+    document,
     scans,
     status: () => $('status').textContent,
     /** The skills in the list, by name. */
@@ -852,4 +853,149 @@ test("an organization: its card shows while it scans, the filter and the skills 
   await page.scanned();
   assert.equal(page.card().hidden, false);
   assert.equal(results(), false, 'answered: the filter and the skills');
+});
+
+/** The keyboard in a page's skill list: keys pressed where the focus is, as a user does. */
+function keyboard(document: Document) {
+  const window = document.defaultView!;
+  const nameOf = (node: Element | null) => node?.closest('li[role="option"]')?.querySelector('.name')?.textContent ?? null;
+  const option = (name: string) => {
+    const item = [...document.querySelectorAll('#skills li[role="option"]')].find((li) => li.querySelector('.name')?.textContent === name);
+    assert.ok(item, name);
+    return item as HTMLElement;
+  };
+  return {
+    option,
+    /** The skill that has the focus; null when the focus is not on a skill. */
+    focused: () => (document.activeElement?.matches('#skills li[role="option"]') ? nameOf(document.activeElement) : null),
+    /** The skills that Tab stops on, by name. */
+    tabStops: () => [...document.querySelectorAll('#skills li[role="option"]')].filter((li) => (li as HTMLElement).tabIndex === 0).map(nameOf),
+    /** Presses a key where the focus is; true when the page took it (its default prevented). */
+    press(key: string, target: Element = document.activeElement!) {
+      const event = new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    },
+    /** Tab into the list: the focus goes to its one Tab stop. */
+    tabIn() {
+      const [stop, ...more] = [...document.querySelectorAll('#skills li[role="option"]')].filter((li) => (li as HTMLElement).tabIndex === 0);
+      assert.equal(more.length, 0, 'one Tab stop');
+      (stop as HTMLElement).focus();
+    },
+  };
+}
+
+test('the keyboard: the list is one Tab stop, on the selected skill; it follows the selection', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const keys = keyboard(page.document);
+  assert.deepEqual(keys.tabStops(), ['aspect-generator'], 'at first: the first skill, selected');
+  for (const item of page.document.querySelectorAll('#skills li[role="option"]')) {
+    assert.ok((item as HTMLElement).tabIndex >= -1 && item.hasAttribute('tabindex'), 'every skill is focusable');
+  }
+  page.select('reviews');
+  assert.deepEqual(keys.tabStops(), ['reviews'], 'a click moves it');
+  page.type('kotlin');
+  assert.equal(page.selected(), 'code-style');
+  assert.deepEqual(keys.tabStops(), ['code-style'], 'filtered out: the first match');
+  page.type('zzz');
+  assert.deepEqual(keys.tabStops(), [], 'no match: no skill to stop on');
+  page.type('');
+  assert.deepEqual(keys.tabStops(), ['aspect-generator']);
+});
+
+test('the keyboard: ↓ ↑ Home End move the focus between the skills, no wrap; the focus alone selects nothing', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const keys = keyboard(page.document);
+  keys.tabIn();
+  assert.equal(keys.focused(), 'aspect-generator');
+  assert.equal(keys.press('ArrowDown'), true, 'the page takes the key: the page does not scroll');
+  assert.equal(keys.focused(), 'code-style');
+  keys.press('ArrowDown');
+  assert.equal(keys.focused(), 'commits');
+  assert.equal(page.selected(), 'aspect-generator', 'the focus alone selects nothing');
+  keys.press('ArrowUp');
+  assert.equal(keys.focused(), 'code-style');
+  keys.press('End');
+  assert.equal(keys.focused(), 'run-tests');
+  keys.press('ArrowDown');
+  assert.equal(keys.focused(), 'run-tests', 'no wrap at the end');
+  keys.press('Home');
+  assert.equal(keys.focused(), 'aspect-generator');
+  keys.press('ArrowUp');
+  assert.equal(keys.focused(), 'aspect-generator', 'no wrap at the start');
+  assert.equal(page.selected(), 'aspect-generator');
+  keys.press('ArrowDown');
+  assert.deepEqual(keys.tabStops(), ['code-style'], 'Tab back into the list returns to the focused skill');
+  page.type('generator');
+  assert.deepEqual(keys.tabStops(), ['aspect-generator'], 'that skill filtered out: the selected one');
+});
+
+test('the keyboard: Enter or Space selects the focused skill, as a click; release-checklist, with no fold, too', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const keys = keyboard(page.document);
+  keys.tabIn();
+  keys.press('End');
+  keys.press('ArrowUp');
+  keys.press('ArrowUp');
+  assert.equal(keys.focused(), 'release-checklist');
+  assert.equal(keys.option('release-checklist').querySelector('details'), null, 'no description: no fold');
+  assert.equal(keys.press('Enter'), true);
+  assert.equal(page.selected(), 'release-checklist', 'Enter selects it');
+  assert.equal(page.placeholder(), null, 'its SKILL.md shows');
+  keys.press('ArrowDown');
+  assert.equal(keys.press(' '), true, 'Space does not scroll the page');
+  assert.equal(page.selected(), 'reviews', 'Space selects it');
+  assert.equal(keys.focused(), 'reviews', 'the focus stays on it');
+  assert.equal(keys.press('a'), false, 'any other key: the browser\'s');
+  assert.equal(page.selected(), 'reviews');
+});
+
+test('the keyboard: the shown skills only, while filtered', async (t) => {
+  const page = await openPage(t, fixtureQuery('use before'));
+  const keys = keyboard(page.document);
+  keys.tabIn();
+  assert.equal(keys.focused(), 'code-style');
+  keys.press('ArrowDown');
+  assert.equal(keys.focused(), 'reviews', 'past the hidden commits and lint-checks');
+  keys.press('End');
+  assert.equal(keys.focused(), 'run-tests');
+  keys.press('Home');
+  assert.equal(keys.focused(), 'code-style');
+});
+
+test('the keyboard: a fold is a Tab stop of its own; Enter on it keeps the selected skill', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const keys = keyboard(page.document);
+  const summary = keys.option('code-style').querySelector('details.description summary') as HTMLElement;
+  assert.ok(summary, 'code-style has more than one sentence: a fold');
+  summary.focus();
+  assert.equal(keys.press('Enter'), false, 'the browser unfolds it');
+  assert.equal(keys.press(' '), false);
+  assert.equal(page.selected(), 'aspect-generator', 'unfolding keeps the selected skill');
+  keys.press('ArrowDown');
+  assert.equal(keys.focused(), 'commits', 'from inside a skill, ↓ goes to the next one');
+});
+
+test("the keyboard: across an organization's repositories, past their headings", async (t) => {
+  const page = await pageAt(t, 'github.com/octo', async () => Response.json(organizationAnswer('octo', 3, [['one', 2], ['two', 1]])));
+  await page.scanned();
+  const keys = keyboard(page.document);
+  /** The heading over the focused skill. */
+  const repository = () => {
+    let node: Element | null = page.document.activeElement?.closest('li') ?? null;
+    while (node && !node.matches('.group')) node = node.previousElementSibling;
+    return node?.textContent ?? null;
+  };
+  keys.tabIn();
+  assert.equal(keys.focused(), 's0');
+  assert.equal(repository(), 'octo/one · 2 skills');
+  keys.press('ArrowDown');
+  keys.press('ArrowDown');
+  assert.equal(keys.focused(), 's0', "the next repository's first skill");
+  assert.equal(repository(), 'octo/two · 1 skill');
+  keys.press('ArrowUp');
+  assert.equal(keys.focused(), 's1');
+  keys.press('Enter');
+  assert.equal(page.document.querySelector('#skill h2')?.textContent, 's1');
+  assert.deepEqual(keys.tabStops(), ['s1']);
 });
