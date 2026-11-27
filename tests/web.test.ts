@@ -4,7 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { request } from 'node:http';
-import { connect } from 'node:net';
+import { connect, type AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test, type TestContext } from 'node:test';
@@ -12,7 +12,7 @@ import { JSDOM } from 'jsdom';
 import { createBrowserBackend } from '../src/browser.ts';
 import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
-import { filterCount, filterSnippet, highlightRanges, matchesFilter, serve, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
+import { createWebServer, filterCount, filterSnippet, highlightRanges, matchesFilter, serve, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
 import { CLI, EXAMPLE_COMMIT, EXAMPLE_UPDATED, FIXTURE, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
 
 // The token goes to GitHub with every /user/repos request.
@@ -868,6 +868,37 @@ test('a malformed request → 400, as without the handler for a too long one', a
   let answer = '';
   for await (const chunk of socket) answer += chunk;
   assert.match(answer, /^HTTP\/1\.1 400 Bad Request\r\n/);
+});
+
+/** What a raw socket to this server gets back for these bytes, until the server closes it. */
+async function raw(port: number, bytes: string, end = true): Promise<string> {
+  const socket = connect(port, '127.0.0.1');
+  if (end) socket.end(bytes);
+  else socket.write(bytes);
+  let answer = '';
+  for await (const chunk of socket) answer += chunk;
+  return answer;
+}
+
+test('a request that never finishes its headers → 408, as without the handler for a too long one', async (t) => {
+  const other = createWebServer({ open });
+  // Short timeouts, read when it listens (connectionsCheckingInterval is not in Server's types).
+  Object.assign(other, { headersTimeout: 300, requestTimeout: 600, connectionsCheckingInterval: 50 });
+  await new Promise<void>((resolve) => other.listen(0, '127.0.0.1', resolve));
+  t.after(() => other.close());
+  const { port } = other.address() as AddressInfo;
+  const answer = await raw(port, `GET / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n`, false);
+  assert.equal(answer, 'HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n');
+});
+
+test('a chunk extension over 16 KB → 413, as without the handler for a too long one', async () => {
+  const port = Number(new URL(url).port);
+  const answer = await raw(
+    port,
+    `GET /api/scan?repo=${encodeURIComponent(FIXTURE)} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nTransfer-Encoding: chunked\r\n\r\n` +
+      `1;${'a'.repeat(20000)}\r\n`,
+  );
+  assert.equal(answer, 'HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\n\r\n');
 });
 
 test("a link too long, reloaded: 431 with the page, which shows its clear message", async (t) => {
