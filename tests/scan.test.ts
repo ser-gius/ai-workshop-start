@@ -3,7 +3,7 @@
 // where skills live are in tests/find.test.ts.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -12,7 +12,7 @@ import { openGitHub } from '../src/core/github.ts';
 import { parseSkill } from '../src/core/parse.ts';
 import { scan } from '../src/core/scan.ts';
 import { replay } from '../src/core/replay.ts';
-import { atlas, CLI, EXAMPLE_COMMIT, FIXTURE, history } from './helpers.ts';
+import { atlas, CLI, EXAMPLE_COMMIT, FIXTURE, history, lockedFixture } from './helpers.ts';
 
 const fixture = await atlas(['scan', FIXTURE]);
 const example = await atlas(['scan', 'github.com/JetBrains/example']);
@@ -98,6 +98,23 @@ test('unreachable repository → a clear message, exit code 1', async () => {
   const offline = await atlas(['scan', 'https://github.com/JetBrains/not-answered']);
   assert.equal(offline.code, 1);
   assert.match(offline.stderr, /^Cannot reach GitHub: not recorded: https:\/\/api\.github\.com\/repos\/JetBrains\/not-answered$/);
+});
+
+test('a folder that cannot be read → a warning, the rest of the directory is scanned', async (t) => {
+  const locked = lockedFixture(t);
+  if (locked.skip) return t.skip(locked.skip);
+  const scanned = await atlas(['scan', locked.root]);
+  assert.equal(scanned.code, 0, scanned.stderr);
+  assert.equal(scanned.stdout, fixture.stdout.replaceAll(pathToFileURL(FIXTURE).href, pathToFileURL(locked.root).href).replace(/^fixture · /, 'locked · '));
+  assert.match(scanned.stdout, /^locked · 7 skills\n/);
+  assert.equal(scanned.stderr.split('\n')[0], 'warning: private: not readable; skipped');
+  assert.equal(scanned.stderr.split('\n').length, fixture.stderr.split('\n').length + 1, 'the fixture\'s warnings too');
+
+  // The directory itself unreadable: still the clear message, exit code 1.
+  chmodSync(locked.root, 0o000);
+  const root = spawnSync(process.execPath, [CLI, 'scan', locked.root], { encoding: 'utf8' });
+  assert.equal(root.status, 1);
+  assert.equal(root.stderr, `Not a GitHub URL or a readable directory: ${locked.root}\n`);
 });
 
 test('rate limit → a message that asks for GITHUB_TOKEN', async () => {

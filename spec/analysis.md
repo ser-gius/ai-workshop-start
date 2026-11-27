@@ -15,6 +15,9 @@ Skill: id = `repo:path`, name, description, commit, updated
 - Unknown commit → a clear message, exit code 1
 - Malformed front matter → a *warning*, the scan goes on
 - Unreachable repository → a clear message, exit code 1
+- A local directory that cannot be read, or none → `Not a GitHub URL or a readable directory: <input>`, exit code 1.
+  A folder *in it* that cannot be read (a root-owned Docker volume, a `postgres-data/`) → a *warning*
+  (`<path>: not readable; skipped`: `private: not readable; skipped`), the scan goes on without it
 - GitHub's rate limit, when it says to wait *a minute* or less (code search: 10 requests a minute) →
   wait, then ask again, twice at most; a longer wait → `GitHub rate limit reached; try again in <n> minutes`, exit code 1.
   `<n>` is GitHub's wait rounded up: `Retry-After: 120` → `2 minutes`. When GitHub names the limit

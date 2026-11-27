@@ -14,3 +14,6 @@ A small repository for the tests.
 | `integration-tests/src/jvmTest/resources/skills/weather-retrieval` | test data: not a skill |
 | `notes/SKILL.md` | not in a `skills` folder: not a skill |
 | `.claude/skills/commits/examples/SKILL.md` | below a skill: not a skill |
+
+Made by the tests, not committed (git keeps no permissions): `locked`, a copy with a `private/` folder
+no one may read (`lockedFixture` in `tests/helpers.ts`).

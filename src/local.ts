@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import type { Dirent } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -15,19 +16,22 @@ const SKIPPED = new Set(['.git', 'node_modules']);
 export async function openDirectory(input: string): Promise<Source> {
   const root = resolve(input);
   const name = basename(root);
-  let paths: string[];
+  let entries: Dirent[];
   try {
-    paths = await walk(root, '');
+    entries = await readdir(root, { withFileTypes: true });
   } catch {
     throw new AtlasError(`Not a GitHub URL or a readable directory: ${input}`);
   }
+  const paths: string[] = [];
+  const warnings: string[] = [];
+  await walk(root, '', entries, paths, warnings);
   const limit = limiter(8); // a git process per skill, a few at a time
   let boundary: Promise<string[]> | undefined;
   const shallow = () => (boundary ??= shallowCommits(root)); // read once, when the first skill asks
   return {
     repository: { id: name, organization: 'local', name, url: pathToFileURL(root).href, commit: '' },
     paths,
-    warnings: [],
+    warnings,
     read: (path) => readFile(join(root, path)).then((bytes) => new Uint8Array(bytes), () => undefined),
     updated: (folders) => limit(() => lastCommit(root, folders, shallow)),
   };
@@ -88,15 +92,25 @@ async function git(root: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-/** Every regular file under the directory, as a path relative to the root. */
-async function walk(root: string, directory: string, paths: string[] = []): Promise<string[]> {
+/**
+ * Every regular file under the directory, as a path relative to the root, from its entries.
+ * A folder that cannot be read (a root-owned Docker volume) is a warning, and the walk goes on.
+ */
+async function walk(root: string, directory: string, entries: Dirent[], paths: string[], warnings: string[]): Promise<void> {
   // One list for the whole walk: a large repository has more files than a spread can pass.
-  for (const entry of await readdir(join(root, directory), { withFileTypes: true })) {
+  for (const entry of entries) {
     const path = directory ? `${directory}/${entry.name}` : entry.name;
-    if (entry.isDirectory() && !SKIPPED.has(entry.name)) await walk(root, path, paths);
-    else if (entry.isFile()) paths.push(path);
+    if (entry.isDirectory() && !SKIPPED.has(entry.name)) {
+      let inside: Dirent[];
+      try {
+        inside = await readdir(join(root, path), { withFileTypes: true });
+      } catch {
+        warnings.push(`${path}: not readable; skipped`);
+        continue;
+      }
+      await walk(root, path, inside, paths, warnings);
+    } else if (entry.isFile()) paths.push(path);
   }
-  return paths;
 }
 
 /** The environment, without what would point git at another repository than the directory's own. */

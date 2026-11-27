@@ -1,4 +1,7 @@
 // Runs the commands the way the CLI does, with GitHub answering from EXAMPLE below.
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run } from '../src/commands.ts';
 import { openGitHub, openOrganization, parseGitHubOwnerUrl, parseGitHubUrl } from '../src/core/github.ts';
@@ -208,3 +211,21 @@ export const USER: Recording = {
   'https://api.github.com/repos/octocat/empty': { status: 200, body: { full_name: 'octocat/empty', default_branch: 'main' } },
   [commitOf('octocat/empty')]: { status: 409, body: { message: 'Git Repository is empty.' } },
 };
+
+/**
+ * A copy of the fixture, `locked`, with a folder no one may read: `private/` (a root-owned Docker
+ * volume, a `postgres-data/`). Git keeps no permissions, so it is made here; removed after the test.
+ * Root reads every folder: there the case cannot happen, and `skip` says why.
+ */
+export function lockedFixture(t: { after(fn: () => void): void }): { root: string; skip?: string } {
+  const root = join(mkdtempSync(join(tmpdir(), 'skill-atlas-')), 'locked');
+  cpSync(FIXTURE, root, { recursive: true });
+  mkdirSync(join(root, 'private'));
+  chmodSync(join(root, 'private'), 0o000);
+  t.after(() => {
+    chmodSync(root, 0o700); // a test may lock the directory itself too
+    chmodSync(join(root, 'private'), 0o700);
+    rmSync(join(root, '..'), { recursive: true, force: true });
+  });
+  return process.getuid?.() === 0 ? { root, skip: 'root reads every folder' } : { root };
+}
