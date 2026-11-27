@@ -102,9 +102,9 @@ export const CASES = {
     const link = (name) => `  https://github.com/JetBrains/koog/blob/${KOOG}/.claude/skills/${name}/SKILL.md`;
     const expected = ['JetBrains/koog · 2 skills',
       'add-java-code-snippets-in-docs — Use when the user asks to add Java tabs/examples to mkdocs docs that already have Kotlin examples (files under docs/docs/**.md using === "Kotlin" / Knit INCLUDE+SUFFIX blocks).',
-      link('add-java-code-snippets-in-docs'),
+      link('add-java-code-snippets-in-docs'), '  updated 2026-05-18',
       'split-jvm-nonjvm — Splits a class or several classes in the common source set commonMain into JVM and non-JVM parts into jvmCommonMain and nonJvmCommonMain.',
-      link('split-jvm-nonjvm'), ''].join('\n');
+      link('split-jvm-nonjvm'), '  updated 2026-03-25', ''].join('\n');
     await t.see('Exactly the listing of the script', () => ({ ok: r.stdout === expected, detail: r.stdout.slice(0, 300) }));
     await t.see('`weather-retrieval` and `arithmetic-evaluator` not listed', !/weather-retrieval|arithmetic-evaluator/.test(r.stdout));
     await t.see('Nothing on stderr; exit code 0', r.stderr === '' && r.code === 0, `exit ${r.code}, stderr ${r.stderr.slice(0, 200)}`);
@@ -643,7 +643,7 @@ export const CASES = {
     await t.p.type('#filter', ' before', { delay: 90 }); await t.pause(400);
     const address = t.p.url();
     await t.see('`?repo=…&filter=use+before`, updated as you type', new URL(address).searchParams.get('filter') === 'use before' && new URL(address).searchParams.get('repo') === t.fixture && partial === 'use', `${address} (while typing: ${partial})`);
-    await t.step(2); await t.open(address); await t.p.waitForSelector('#skills li[role="option"]', { timeout: 60_000 });
+    await t.step(2); await t.open(address); await t.p.waitForSelector('#skills li[role="option"]:not([hidden])', { timeout: 60_000 });
     await t.see('The scan and the filter at once: `3 of 7`', async () => ({ ok: (await t.text('#count')) === '3 of 7' && (await t.p.inputValue('#filter')) === 'use before', detail: await t.text('#count') }));
     await t.step(3); await t.filter('');
     await t.see('No `filter=`, `repo=` stays', () => { const u = new URL(t.p.url()); return { ok: !u.searchParams.has('filter') && u.searchParams.get('repo') === t.fixture, detail: t.p.url() }; });
