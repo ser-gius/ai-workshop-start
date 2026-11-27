@@ -4,15 +4,17 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { request } from 'node:http';
-import { join } from 'node:path';
+import { connect, type AddressInfo } from 'node:net';
+import { delimiter, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test, type TestContext } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { createBrowserBackend } from '../src/browser.ts';
 import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
-import { filterCount, filterSnippet, highlightRanges, matchesFilter, serve, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
-import { CLI, EXAMPLE_COMMIT, EXAMPLE_UPDATED, FIXTURE, lockedFixture, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
+import { createWebServer, filterCount, filterSnippet, highlightRanges, matchesFilter, serve, topicChips, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
+import { OTHER, type TopicSkill } from '../src/core/topics.ts';
+import { CLI, claudeAnswering, EXAMPLE_COMMIT, EXAMPLE_UPDATED, FIXTURE, lockedFixture, open, stubClaude, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
 
 // The token goes to GitHub with every /user/repos request.
 const authorized: Fetch = (requested, init) => {
@@ -673,6 +675,8 @@ function organizationAnswer(owner: string, total: number, repositories: [string,
       })),
     })),
     warnings: [],
+    topics: [],
+    topicsBy: 'heuristic',
   };
 }
 
@@ -692,6 +696,8 @@ test("each skill's day: next to it in the list, `updated <day>` in the selected 
     repository: { id: 'octo/dates', url: 'https://github.com/octo/dates', commit: EXAMPLE_COMMIT },
     skills: [skill('dated', '2026-09-15T23:30:00Z'), skill('undated', null)],
     warnings: [],
+    topics: [],
+    topicsBy: 'heuristic',
   };
   const page = await pageAt(t, 'https://github.com/octo/dates', async () => Response.json(answer));
   await page.scanned();
@@ -979,8 +985,14 @@ test('anything else → 404; only GET', async () => {
 });
 
 /** Starts `./skill-atlas serve <args>`; resolves with the first line it prints. */
-async function startServe(t: { after(fn: () => void): void }, args: string[], env = process.env): Promise<string> {
-  const child = spawn(process.execPath, [CLI, 'serve', ...args], { stdio: ['ignore', 'pipe', 'pipe'], env });
+/**
+ * `./skill-atlas serve <args>`; never a real model: `claude` on its PATH is a stub, one that fails unless given.
+ */
+async function startServe(t: { after(fn: () => void): void }, args: string[], env = process.env, claude = stubClaude(t, 'exit 1')): Promise<string> {
+  const child = spawn(process.execPath, [CLI, 'serve', ...args], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...env, PATH: `${claude.dir}${delimiter}${env.PATH ?? ''}` },
+  });
   t.after(() => child.kill());
   return new Promise<string>((resolve, reject) => {
     let out = '';
@@ -1244,4 +1256,243 @@ test('a long text stays inside its card: wrapped, or cut with … and whole on h
   const scanned = await pageAt(t, FIXTURE);
   await scanned.scanned();
   assert.equal(scanned.document.getElementById('status')!.title, 'fixture · 7 skills');
+});
+
+/** The topic cards above the list: each one's title, its chips, and its `+<n>` if any. */
+const topicCards = (document: Document) =>
+  [...document.querySelectorAll('#topics .topic')].map((card) => [
+    card.querySelector('.topic-title')!.textContent,
+    ...[...card.querySelectorAll('.chips > *')].map((chip) => (chip.matches('.chip') ? chip.textContent : `[${chip.textContent}]`)),
+  ]);
+
+test('topics in the API: every skill in exactly one, by id; the heuristic without a model', async () => {
+  const { body } = await scan(FIXTURE);
+  assert.equal(body.topicsBy, 'heuristic');
+  // The fixture's names share no word: every skill in Other.
+  assert.deepEqual(body.topics, [{ title: OTHER, skills: body.skills.map((skill) => skill.id) }]);
+});
+
+test("topics in the API: the server's model gets each skill's id, name and description; an organization's across its repositories", async (t) => {
+  const asked: TopicSkill[][] = [];
+  const other = await serve({
+    open,
+    port: 0,
+    topics: async (skills) => (asked.push(skills), { by: 'model', topics: [{ title: 'Everything', skills: skills.map((skill) => skill.id) }] }),
+  });
+  t.after(() => other.server.close());
+  const answer = (await (await fetch(`${other.url}api/scan?repo=${encodeURIComponent('https://github.com/octo-org')}`)).json()) as OrganizationAnswer;
+  const every = answer.repositories.flatMap((group) => group.skills);
+  assert.deepEqual(asked, [every.map(({ id, name, description }) => ({ id, name, description }))], 'one ask, every repository');
+  assert.equal(answer.topicsBy, 'model');
+  assert.deepEqual(answer.topics, [{ title: 'Everything', skills: every.map((skill) => skill.id) }]);
+});
+
+test('the chips: the first 3 names once each, then +<n> for the rest', () => {
+  assert.deepEqual(topicChips(['a', 'b']), { chips: ['a', 'b'], more: '' });
+  assert.deepEqual(topicChips(['a', 'b', 'c']), { chips: ['a', 'b', 'c'], more: '' });
+  assert.deepEqual(topicChips(['a', 'b', 'c', 'd', 'e']), { chips: ['a', 'b', 'c'], more: '+2' });
+  assert.deepEqual(topicChips(['a', 'a', 'b', 'c', 'c', 'd']), { chips: ['a', 'b', 'c'], more: '+1' }, 'a name twice: once');
+  assert.deepEqual(topicChips([]), { chips: [], more: '' });
+});
+
+/** A repository's answer with these skills, by name, and these topics, by names. */
+function topicsAnswer(names: string[], topics: [string, string[]][]): ScanAnswer {
+  const id = (name: string) => `octo/many:.claude/skills/${name}/SKILL.md`;
+  return {
+    repository: { id: 'octo/many', url: 'https://github.com/octo/many', commit: EXAMPLE_COMMIT },
+    skills: names.map((name) => ({
+      id: id(name),
+      name,
+      description: `Does ${name}.`,
+      summary: `Does ${name}.`,
+      path: `.claude/skills/${name}/SKILL.md`,
+      link: `https://github.com/octo/many/blob/${EXAMPLE_COMMIT}/.claude/skills/${name}/SKILL.md`,
+      copies: [],
+      text: '',
+      updated: null,
+    })),
+    topics: topics.map(([title, skills]) => ({ title, skills: skills.map(id) })),
+    topicsBy: 'model',
+    warnings: [],
+  };
+}
+
+test('the page: a card per topic above the list, its title, its first 3 skills as chips, then +<n>', async (t) => {
+  const names = ['build-tools', 'debugging', 'driver-ui-tests', 'gradle-bump', 'icons', 'module-dependencies', 'testing', 'writing-tests', 'ui-tests'];
+  const answer = topicsAnswer(names, [
+    ['Testing and test infrastructure', ['testing', 'writing-tests', 'driver-ui-tests', 'ui-tests']],
+    ['Builds, modules and dependencies', ['build-tools', 'gradle-bump', 'module-dependencies']],
+    ['Debugging and diagnostics', ['debugging']],
+    ['UI, icons and accessibility', ['icons']],
+  ]);
+  const page = await pageAt(t, 'https://github.com/octo/many', async () => Response.json(answer));
+  await page.scanned();
+  const { document } = page;
+  assert.deepEqual(topicCards(document), [
+    ['Testing and test infrastructure', 'testing', 'writing-tests', 'driver-ui-tests', '[+1]'],
+    ['Builds, modules and dependencies', 'build-tools', 'gradle-bump', 'module-dependencies'],
+    ['Debugging and diagnostics', 'debugging'],
+    ['UI, icons and accessibility', 'icons'],
+  ]);
+  // Above the list, in the results; the names monospace, every one on hover.
+  const topics = document.getElementById('topics')!;
+  assert.equal(topics.parentElement!.id, 'results');
+  assert.equal(topics.nextElementSibling!.id, 'list');
+  assert.equal(document.querySelector('#topics .chip')!.tagName, 'CODE');
+  assert.equal((document.querySelector('#topics .topic') as HTMLElement).title, 'testing, writing-tests, driver-ui-tests, ui-tests');
+  const page$ = await (await fetch(url)).text();
+  assert.match(page$, /#topics \.topic-title \{[^}]*font-weight: 700/, 'the title in bold');
+  assert.match(page$, /#topics \.chips \{[^}]*white-space: nowrap/, 'the chips on one row');
+  assert.match(page$, /#topics \.chip \{[^}]*var\(--mono\)/, 'monospace chips');
+});
+
+test("the page: an organization's cards are across its repositories; a name in two repositories, one chip", async (t) => {
+  const answer = organizationAnswer('octo', 5, [['a', 2], ['b', 3]]);
+  const every = answer.repositories.flatMap((group) => group.skills.map((skill) => skill.id));
+  answer.topics = [{ title: 'All of them', skills: every }];
+  answer.topicsBy = 'model';
+  const page = await pageAt(t, 'github.com/octo', async () => Response.json(answer));
+  await page.scanned();
+  // s0, s1 in both; s2 only in b: 3 names, 5 skills.
+  assert.deepEqual(topicCards(page.document), [['All of them', 's0', 's1', 's2']]);
+});
+
+test('the page: no skills → no cards; a new scan replaces them; the filter does not change them', async (t) => {
+  const empty = await pageAt(t, 'github.com/empty-org', async () => Response.json(organizationAnswer('empty-org', 4, [])));
+  await empty.scanned();
+  assert.deepEqual(topicCards(empty.document), []);
+
+  // The real server, its heuristic: the fixture's names share no word.
+  const page = await pageAt(t, FIXTURE);
+  await page.scanned();
+  const { document } = page;
+  const fixture = [[OTHER, 'aspect-generator', 'code-style', 'commits', '[+4]']];
+  assert.deepEqual(topicCards(document), fixture);
+  const filter = document.getElementById('filter') as HTMLInputElement;
+  filter.value = 'use before';
+  filter.dispatchEvent(new document.defaultView!.Event('input', { bubbles: true }));
+  assert.equal(document.querySelectorAll('#skills li[role="option"]:not([hidden])').length, 3, 'filtered');
+  assert.deepEqual(topicCards(document), fixture, 'the cards as they were');
+
+  filter.value = '';
+  (document.getElementById('repo') as HTMLInputElement).value = 'https://github.com/JetBrains/example';
+  (document.getElementById('scan') as HTMLButtonElement).click();
+  assert.deepEqual(topicCards(document), [], 'scanning: none');
+  await page.scanned();
+  assert.deepEqual(topicCards(document), [[OTHER, 'commits']]);
+});
+
+test('./skill-atlas serve asks `claude -p --model haiku` for the topics', async (t) => {
+  const claude = stubClaude(t, claudeAnswering({ topics: [{ title: 'Git and reviews', skills: ['commits', 'reviews'] }] }));
+  const local = /^Skill Atlas at (\S+)\n$/.exec(await startServe(t, ['--port', '0'], process.env, claude))?.[1];
+  assert.ok(local);
+  const answer = (await (await fetch(`${local}api/scan?repo=${encodeURIComponent(FIXTURE)}`)).json()) as ScanAnswer;
+  const id = (name: string) => answer.skills.find((skill) => skill.name === name)!.id;
+  assert.equal(answer.topicsBy, 'model');
+  assert.deepEqual(answer.topics, [
+    { title: 'Git and reviews', skills: [id('commits'), id('reviews')] },
+    { title: OTHER, skills: ['aspect-generator', 'code-style', 'lint-checks', 'release-checklist', 'run-tests'].map(id) },
+  ]);
+  assert.deepEqual(claude.args(), ['-p', '--model', 'haiku', '--tools', '', '--strict-mcp-config', '--no-session-persistence']);
+  assert.match(claude.stdin()!, /^- run-tests: Run the project's tests\. Use before every push\.$/m);
+});
+
+test('./skill-atlas serve without `claude`, or with one that fails: the heuristic, the scan as ever', async (t) => {
+  // Nothing else on its PATH (node is run by its path): no real claude is found, only the stub, if any.
+  const none = { dir: mkdtempSync(join(tmpdir(), 'skill-atlas-no-claude-')) } as ReturnType<typeof stubClaude>;
+  t.after(() => rmSync(none.dir, { recursive: true, force: true }));
+  const failing = stubClaude(t, 'echo "Not logged in" >&2; exit 1');
+  for (const claude of [none, failing]) {
+    const local = /^Skill Atlas at (\S+)\n$/.exec(await startServe(t, ['--port', '0'], { ...process.env, PATH: '' }, claude))?.[1];
+    assert.ok(local);
+    const response = await fetch(`${local}api/scan?repo=${encodeURIComponent(FIXTURE)}`);
+    assert.equal(response.status, 200);
+    const answer = (await response.json()) as ScanAnswer;
+    assert.equal(answer.skills.length, 7);
+    assert.equal(answer.topicsBy, 'heuristic');
+    assert.deepEqual(answer.topics, [{ title: OTHER, skills: answer.skills.map((skill) => skill.id) }]);
+  }
+});
+
+// A link longer than Node's 16 KB for a request's line and headers never reaches the server's handler.
+const TOO_LONG = `https://github.com/${'a'.repeat(17000)}`;
+
+test('a link too long for a request → 431 with a clear message', async () => {
+  assert.deepEqual(await scan(TOO_LONG), { status: 431, body: { error: 'The link is too long' } });
+});
+
+test('a malformed request → 400, as without the handler for a too long one', async () => {
+  const socket = connect(new URL(url).port as unknown as number, '127.0.0.1');
+  socket.end('NOT HTTP\r\n\r\n');
+  let answer = '';
+  for await (const chunk of socket) answer += chunk;
+  assert.match(answer, /^HTTP\/1\.1 400 Bad Request\r\n/);
+});
+
+/** What a raw socket to this server gets back for these bytes, until the server closes it. */
+async function raw(port: number, bytes: string, end = true): Promise<string> {
+  const socket = connect(port, '127.0.0.1');
+  if (end) socket.end(bytes);
+  else socket.write(bytes);
+  let answer = '';
+  for await (const chunk of socket) answer += chunk;
+  return answer;
+}
+
+test('a request that never finishes its headers → 408, as without the handler for a too long one', async (t) => {
+  const other = createWebServer({ open });
+  // Short timeouts, read when it listens (connectionsCheckingInterval is not in Server's types).
+  Object.assign(other, { headersTimeout: 300, requestTimeout: 600, connectionsCheckingInterval: 50 });
+  await new Promise<void>((resolve) => other.listen(0, '127.0.0.1', resolve));
+  t.after(() => other.close());
+  const { port } = other.address() as AddressInfo;
+  const answer = await raw(port, `GET / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n`, false);
+  assert.equal(answer, 'HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n');
+});
+
+test('a chunk extension over 16 KB → 413, as without the handler for a too long one', async () => {
+  const port = Number(new URL(url).port);
+  const answer = await raw(
+    port,
+    `GET /api/scan?repo=${encodeURIComponent(FIXTURE)} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nTransfer-Encoding: chunked\r\n\r\n` +
+      `1;${'a'.repeat(20000)}\r\n`,
+  );
+  assert.equal(answer, 'HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\n\r\n');
+});
+
+test("a link too long, reloaded: 431 with the page, which shows its clear message", async (t) => {
+  const link = `${url}?repo=${encodeURIComponent(TOO_LONG)}`;
+  const response = await fetch(link);
+  assert.equal(response.status, 431);
+  assert.match(response.headers.get('content-type') ?? '', /^text\/html/);
+  const html = await response.text();
+  assert.equal(html, await (await fetch(url)).text(), 'the page itself');
+  const dom = new JSDOM(html, {
+    url: link,
+    runScripts: 'dangerously',
+    beforeParse(window) {
+      (window as unknown as { fetch: typeof fetch }).fetch = (path) => fetch(new URL(String(path), url));
+    },
+  });
+  t.after(() => dom.window.close());
+  const status = dom.window.document.getElementById('status')!;
+  for (let i = 0; i < 200 && /^Scanning /.test(status.textContent ?? ''); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(status.textContent, 'The link is too long');
+  assert.equal(status.className, 'error');
+});
+
+test('a link too long: the page shows its clear message, no skills', async (t) => {
+  const page = await pageAt(t, TOO_LONG);
+  await page.scanned();
+  const status = page.document.getElementById('status')!;
+  assert.equal(status.textContent, 'The link is too long');
+  assert.equal(status.className, 'error');
+  assert.equal((page.document.getElementById('results') as HTMLElement).hidden, true, 'no skills');
+});
+
+test('an answer that is not JSON: the page says what the server answered', async (t) => {
+  const page = await pageAt(t, FIXTURE, async () => new Response('', { status: 502, statusText: 'Bad Gateway' }));
+  await page.scanned();
+  assert.equal(page.document.getElementById('status')!.textContent, 'The server answered 502 Bad Gateway');
+  assert.equal((page.document.getElementById('results') as HTMLElement).hidden, true, 'no skills');
 });

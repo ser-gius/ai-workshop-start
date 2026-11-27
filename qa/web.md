@@ -117,6 +117,18 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
   `Not a GitHub URL or a readable directory: /no/such/directory`
 - No skills, no selected skill; the page still works: scanning `<checkout>/fixture` next shows its skills
 
+### WEB-32 · A very long link
+**Steps**
+1. Paste `https://github.com/` followed by 17000 `a` in the field (`python3 -c "print('https://github.com/' + 'a' * 17000)"`), then **Scan**
+2. Reload the page (its link is now that long one)
+3. `curl -s -w ' %{http_code}\n' "http://127.0.0.1:4173/api/scan?repo=$(python3 -c "print('a' * 20000)")"`
+
+**Should see**
+- Step 1: `The link is too long` in the header, not a JavaScript error (`Unexpected end of JSON input`); no skills
+- Step 2: the page again, not `{"error":"The link is too long"}` as text: `The link is too long` in the header,
+  no skills; the page still works: scanning `<checkout>/fixture` next shows its skills
+- Step 3: `{"error":"The link is too long"} 431`
+
 ### WEB-10 · A scan has a link of its own
 **Steps**
 1. Scan `<checkout>/fixture`; copy the address bar
@@ -346,3 +358,20 @@ On `<checkout>/fixture` unless a case says otherwise.
 
 **Should see**
 - Step 2: the new description at once: every scan reads afresh; `git status` in the checkout is clean
+
+## Topics
+
+### WEB-30 · The skills by topic
+*With `claude` on the PATH, the cards are Haiku's (a few seconds more for the scan); without it, the heuristic's.*
+
+**Steps**
+1. Scan `<checkout>/fixture`; look above the skill list
+2. `curl -s "http://127.0.0.1:4173/api/scan?repo=$(pwd)/fixture"`; look at `topics` and `topicsBy`
+3. Back on the page, scanned as in step 1: type `use before` in the filter
+
+**Should see**
+- Step 1: a card per topic: its title in bold, then on one row up to 3 skill names as monospace chips, then
+  `+<n>` for the rest; the 7 skills counted once across the cards. Without `claude`: one card, `Other`,
+  `aspect-generator` `code-style` `commits` `+4`
+- Step 2: `topicsBy` is `model` (with `claude`) or `heuristic`; each of the 7 skills' `id` in exactly one topic
+- Step 3: the cards as they were

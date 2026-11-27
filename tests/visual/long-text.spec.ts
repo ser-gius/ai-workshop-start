@@ -2,7 +2,7 @@
 // and the page never scrolls sideways. Measured in the browser (jsdom has no layout); no screenshots,
 // so no baselines: the boxes themselves are compared.
 import { expect, test, type Page } from '@playwright/test';
-import type { OrganizationAnswer, ScanAnswer } from '../../src/web.ts';
+import type { OrganizationAnswer, ScanAnswer, TopicsAnswer } from '../../src/web.ts';
 import { FIXTURE_COPY } from './data.ts';
 
 const LONG_NAME = 'a-very-long-skill-name-without-any-spaces-that-goes-on-and-on-and-on-forever-and-ever';
@@ -16,6 +16,8 @@ function skill(name: string, description: string): ScanAnswer['skills'][number] 
     text: `---\nname: ${name}\n---\nbody\n`, updated: '2026-11-20T09:14:03Z',
   };
 }
+// No topic cards: these tests measure the list and the header, not the cards above them.
+const NO_TOPICS: TopicsAnswer = { topics: [], topicsBy: 'heuristic' };
 const repository = (id: string): ScanAnswer['repository'] =>
   ({ id, url: `https://github.com/${id}`, commit: 'c0ffee' });
 
@@ -61,7 +63,7 @@ test.beforeEach(async ({ page }) => {
 test('a long skill name wraps on its own line; its description stays under it', async ({ page }) => {
   const long = { ...skill(LONG_NAME, 'Its description stays under the name.'), copies: [DEEP + 'SKILL.md'],
     link: 'https://github.com/octo/long/blob/main' + DEEP + 'SKILL.md' };
-  await answering(page, { repository: repository('octo/long'), warnings: [],
+  await answering(page, { repository: repository('octo/long'), warnings: [], ...NO_TOPICS,
     skills: [long, skill('commits', 'Write commit messages.')] } satisfies ScanAnswer);
   await scan(page, 'https://github.com/octo/long');
   await expect(page.locator('#count')).toHaveText('2 skills');
@@ -88,7 +90,7 @@ test('a long skill name wraps on its own line; its description stays under it', 
 
 test('a long skill name on a narrow window: still inside its card', async ({ page }) => {
   await page.setViewportSize({ width: 600, height: 800 });
-  await answering(page, { repository: repository('octo/long'), warnings: [], skills: [skill(LONG_NAME, 'Short.')] } satisfies ScanAnswer);
+  await answering(page, { repository: repository('octo/long'), warnings: [], ...NO_TOPICS, skills: [skill(LONG_NAME, 'Short.')] } satisfies ScanAnswer);
   await scan(page, 'https://github.com/octo/long');
   await expect(page.locator('#count')).toHaveText('1 skill');
   await inside(page, '#skills .name', '#list');
@@ -97,7 +99,7 @@ test('a long skill name on a narrow window: still inside its card', async ({ pag
 });
 
 test('a long word in a description wraps inside the list', async ({ page }) => {
-  await answering(page, { repository: repository('octo/long'), warnings: [], skills: [skill('words', 'See ' + LONG_WORD + ' here')] } satisfies ScanAnswer);
+  await answering(page, { repository: repository('octo/long'), warnings: [], ...NO_TOPICS, skills: [skill('words', 'See ' + LONG_WORD + ' here')] } satisfies ScanAnswer);
   await scan(page, 'https://github.com/octo/long');
   await expect(page.locator('#count')).toHaveText('1 skill');
   await inside(page, '#skills .description', '#list');
@@ -145,6 +147,7 @@ test('an organization: a long repository heading and a long warning stay inside 
     organization: { id: 'octo', url: 'https://github.com/octo', repositories: 1 },
     repositories: [{ repository: repository(name), skills: [skill(LONG_NAME, 'Short.')] }],
     warnings: [`Skipped ${DEEP}SKILL.md: no front matter`],
+    ...NO_TOPICS,
   } satisfies OrganizationAnswer);
   await scan(page, 'https://github.com/octo');
   await expect(page.locator('#org-top li')).toHaveCount(1);

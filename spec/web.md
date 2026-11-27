@@ -34,6 +34,9 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - **Suggestions** in the field: the user's GitHub repositories; picking one fills in its URL
   - Without `GITHUB_TOKEN`: none, and a hint to set it; a GitHub failure → its *clear message*, the page still works
 - Warnings under the field; an unreachable repository → its *clear message*, no skills
+  - A link too long for a request (over Node's 16 KB, `https://github.com/` and 17000 `a`) → `The link is too long`
+    - Its link too (reloaded or shared): the page, with that message, not the API's JSON
+  - An answer that is not JSON → what the server answered, `The server answered 502 Bad Gateway`, never a parser's error
 - `?repo=<link>` scans at once, so a scan has a link of its own
 - The **history**: each new scan's link is an entry of its own, like any link opened; *Back* scans the
   link before, with its filter, *Forward* the next one (afresh: nothing is stored)
@@ -62,6 +65,17 @@ Every text stays **inside its card**, even a long one with no spaces; the page n
   (`Scanning /tmp/deep/deep/deep/…`, `JetBrains/kotlin · 6 skills`), beside the field, in at most 40%
   of the row, so the header stays one row (on a narrow screen it wraps instead, see *Page*); and an organization's
   name and top repositories in its card
+## Topics
+Above the skill list, a **card per topic** ([analysis](analysis.md#topics)), in the topics' order:
+```
+Testing and test infrastructure      testing  writing-tests  driver-ui-tests  +5
+Builds, modules and dependencies     build-bump-gradle-version  module-dependencies  +5
+```
+- Its **title** in bold; under it, on one row, the first *3* skill names as monospace **chips**, in the list's
+  order, then `+<n>` for the rest. A name twice (two repositories) → one chip. Every skill's name on hover
+- `./skill-atlas serve` asks the model; a server started without one (the visual tests) uses the heuristic
+- An organization: one set of cards across its repositories
+- No skills → no cards; a new scan replaces them; the filter does not change them
 ## Filter
 A **filter field** above the skill list narrows it *as you type*, no new scan
 - Its **words** (split on spaces) are matched against a skill's **name** and whole **description**:
@@ -89,7 +103,12 @@ A **filter field** above the skill list narrows it *as you type*, no new scan
 `GET /api/scan?repo=<link>` → JSON `{ repository, skills, warnings }`; a skill has `name`,
 `description` (on one line), `summary` (its first sentence), `path`, `link`, `copies`, `text`, the SKILL.md,
 and `updated`, the time it last changed (ISO 8601 in UTC, `2026-11-20T09:14:03Z`), `null` without a date
+- `topics`: `[{ title, skills }]`, each skill by its `id`, every skill in exactly one; `topicsBy`: `model` or
+  `heuristic`. An organization's are across its repositories
 - No link, or an unreachable repository → 400 `{ error }`
+- A link too long for a request (its line and headers over 16 KB: Node rejects it before the server sees it)
+  → 431 `{ error: 'The link is too long' }`; the page's own link (`/?repo=`, not `/api/`) that long → 431 with the page
+  - Any other request Node rejects → its usual answer, no body (400, 408, 413)
 - An organization → `{ organization, repositories, warnings }`: `organization` has `id`, `url` and `repositories`
   (how many, forks left out); `repositories` lists those with skills, each `{ repository, skills }` as above
 

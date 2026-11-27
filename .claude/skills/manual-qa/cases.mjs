@@ -473,6 +473,21 @@ export const CASES = {
     await t.scan(t.fixture);
     await t.see('The page still works: the fixture\'s skills', async () => same((await t.names()).length, 7));
   },
+  async 'WEB-32'(t) {
+    const s = await t.serve(); await t.open(s.url);
+    await t.step(1, 'pasted: typing 17019 characters would take minutes');
+    await t.p.fill('#repo', `https://github.com/${'a'.repeat(17000)}`);
+    await t.p.click('#scan'); await t.scanned();
+    await t.see('`The link is too long` in the header, not a JavaScript error', async () => same(await t.text('#status'), 'The link is too long'));
+    await t.see('No skills', async () => ({ ok: (await t.names()).length === 0 && (await t.p.isHidden('#results')) }));
+    await t.step(2); await t.p.reload(); await t.scanned();
+    await t.see('The page again, `The link is too long` in the header', async () => same(await t.text('#status'), 'The link is too long'));
+    await t.see('No skills', async () => ({ ok: (await t.names()).length === 0 && (await t.p.isHidden('#results')) }));
+    await t.scan(t.fixture);
+    await t.see('The page still works: the fixture\'s skills', async () => same((await t.names()).length, 7));
+    await t.step(3); const a = await t.api(`${s.url}api/scan?repo=${'a'.repeat(20000)}`);
+    await t.see('`{"error":"The link is too long"} 431`', a.status === 431 && a.text === '{"error":"The link is too long"}', `${a.text} ${a.status}`);
+  },
   async 'WEB-10'(t) {
     const s = await t.serve(); await t.open(s.url);
     await t.step(1); await t.scan(t.fixture);
@@ -779,5 +794,25 @@ export const CASES = {
     const after = (await t.sh('git status --porcelain')).stdout;
     await t.see('`git status` in the checkout unchanged', before === after, after);
     rmSync(dir, { recursive: true, force: true });
+  },
+  async 'WEB-30'(t) {
+    const s = await t.serve(); await t.open(s.url);
+    await t.step(1); await t.scan(t.fixture);
+    const cards = () => t.p.$$eval('#topics .topic', (els) => els.map((e) => [e.querySelector('.topic-title').textContent,
+      ...[...e.querySelectorAll('.chips > *')].map((c) => c.textContent)]));
+    const shown = await cards();
+    const counted = shown.reduce((sum, [, ...chips]) => sum + chips.reduce((n, c) => n + (/^\+\d+$/.test(c) ? +c.slice(1) : 1), 0), 0);
+    await t.see('A card per topic, above the list: a bold title, at most 3 chips, then `+<n>`', async () => ({
+      ok: shown.length > 0 && shown.every(([title, ...chips]) => title && chips.filter((c) => !/^\+\d+$/.test(c)).length <= 3)
+        && await t.p.$eval('#topics', (e) => e.nextElementSibling?.id === 'list' && getComputedStyle(e.querySelector('.topic-title')).fontWeight >= 700),
+      detail: JSON.stringify(shown) }));
+    await t.see('The 7 skills counted once across the cards', counted === 7, `${counted}: ${JSON.stringify(shown)}`);
+    await t.step(2); const a = await t.api(`${s.url}api/scan?repo=${encodeURIComponent(t.fixture)}`);
+    const ids = (a.json?.topics ?? []).flatMap((topic) => topic.skills);
+    await t.see('`topicsBy`: `model` or `heuristic`', ['model', 'heuristic'].includes(a.json?.topicsBy), a.json?.topicsBy);
+    if (a.json?.topicsBy === 'heuristic') await t.see('Without `claude`: one card, `Other` `aspect-generator` `code-style` `commits` `+4`', () => same(shown, [['Other', 'aspect-generator', 'code-style', 'commits', '+4']]));
+    await t.see('Each skill\'s `id` in exactly one topic', () => same([...ids].sort(), a.json.skills.map((k) => k.id).sort()));
+    await t.step(3); await t.open(s.url); await t.scan(t.fixture); await t.filter('use before');
+    await t.see('The cards as they were', async () => same(await cards(), shown));
   },
 };
