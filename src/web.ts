@@ -137,12 +137,25 @@ export function matchesFilter(skill: { name: string; description: string }, filt
 /**
  * Where the filter's words are in a text, to highlight: every occurrence of every word,
  * case-insensitive, as [start, end) ranges in order; overlapping or touching ones merged.
+ * The ranges are in the text itself, not in its lower case: a character whose lower case is longer
+ * ('İ' → 'i̇') does not shift the matches after it, and a match in part of one covers it whole.
  */
 export function highlightRanges(text: string, filter: string): [number, number][] {
   const lower = text.toLowerCase();
+  // For each code unit of the lower case: where the character it comes from starts and ends in the text.
+  const starts: number[] = [];
+  const ends: number[] = [];
+  let next = 0;
+  for (const char of text) {
+    for (let i = 0; i < char.toLowerCase().length; i++) {
+      starts.push(next);
+      ends.push(next + char.length);
+    }
+    next += char.length;
+  }
   const ranges: [number, number][] = [];
   for (const word of filterWords(filter)) {
-    for (let at = lower.indexOf(word); at !== -1; at = lower.indexOf(word, at + 1)) ranges.push([at, at + word.length]);
+    for (let at = lower.indexOf(word); at !== -1; at = lower.indexOf(word, at + 1)) ranges.push([starts[at], ends[at + word.length - 1]]);
   }
   ranges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const merged: [number, number][] = [];
@@ -222,7 +235,8 @@ const PAGE = `<!doctype html>
   /* The header on one row: the name, the field, and what was scanned. */
   .header-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
   .header-row h1 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
-  .header-row #form { flex: 1 1 360px; }
+  /* min-width: 0 lets the field shrink below its content on a narrow screen, Scan inside the card. */
+  .header-row #form { flex: 1 1 360px; min-width: 0; }
   /* What was scanned, on one line beside the field: a long link is cut with …, the whole of it on hover; an error wraps.
      At most 40% of the row, so it shrinks beside the field instead of going onto a row of its own. */
   .header-row #status { flex: 0 1 auto; margin-top: 0; min-width: 0; max-width: 40%; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -237,22 +251,25 @@ const PAGE = `<!doctype html>
   #warnings { margin: 6px 0 0; padding-left: 20px; color: var(--warn); font-size: 13px; overflow-wrap: anywhere; }
   #warnings:empty { display: none; }
   main { display: grid; grid-template-columns: minmax(320px, 560px) minmax(0, 1fr); gap: 24px; align-items: start; }
-  @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+  /* A narrow screen: the list above the SKILL.md, and what was scanned wraps inside the header. */
+  @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } .header-row #status { max-width: none; white-space: normal; overflow-wrap: anywhere; } }
   /* A long text with no spaces wraps inside its card, never past it. */
   #no-match { margin: 12px 4px 2px; color: var(--muted); overflow-wrap: anywhere; }
   #no-match:empty { display: none; }
   #skills { list-style: none; margin: 8px 0 0; padding: 0; }
   #skills:empty { display: none; }
   #skills [hidden] { display: none !important; }
-  /* The name takes at most half the row, wrapping if longer: the description keeps the other half. */
-  #skills li { display: grid; grid-template-columns: fit-content(50%) minmax(0, 1fr); column-gap: 14px; align-items: baseline; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+  /* A skill: a stacked row, its name and day on one line, its description under them, a line between two skills. */
+  #skills li { position: relative; padding: 10px 12px; border-radius: 8px; cursor: pointer; }
+  #skills li.line::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; border-top: 1px solid var(--line); }
   #skills li:hover { background: #eeece6; }
   #skills li[aria-selected="true"] { background: var(--tile); box-shadow: inset 3px 0 0 var(--accent); }
-  #skills .name { grid-column: 1; grid-row: 1; min-width: 0; font: 15px/1.5 var(--mono); overflow-wrap: anywhere; }
-  #skills .description, #skills .snippet { grid-column: 2; grid-row: 1 / span 2; color: var(--muted); font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
+  #skills .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+  #skills .name { font: 700 15px/1.5 var(--mono); min-width: 0; overflow-wrap: anywhere; }
+  #skills .description, #skills .snippet { margin-top: 2px; color: var(--muted); font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
   #skills .snippet { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* The day it last changed, under its name: the description keeps its width. */
-  #skills .updated { grid-column: 1; grid-row: 2; color: var(--muted); font: 12px/1.4 var(--mono); white-space: nowrap; }
+  /* The day it last changed: a small chip beside the name. */
+  #skills .head .updated { padding: 0 8px; border-radius: 999px; background: #1d1d220d; color: var(--muted); font: 12px/1.6 var(--mono); white-space: nowrap; }
   mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 1px; }
   /* An organization's card: what was scanned, how far, and the repositories with the most skills. */
   #organization { margin-bottom: 24px; max-width: 760px; }
@@ -271,7 +288,7 @@ const PAGE = `<!doctype html>
   .more { color: var(--muted); padding-top: 2px; }
   .more:empty { display: none; }
   /* An organization's skills: a heading per repository. */
-  #skills li.group { display: block; padding: 12px 8px 4px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: default; overflow-wrap: anywhere; }
+  #skills li.group { display: block; padding: 12px 12px 4px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: default; overflow-wrap: anywhere; }
   #skills li.group:hover { background: none; }
   #skills li.group a { color: inherit; text-decoration: none; }
   #skills li.group a:hover { text-decoration: underline; }
@@ -284,6 +301,8 @@ const PAGE = `<!doctype html>
   #skills details.description .whole::before { content: '▾ '; }
   #skills details.description .whole { cursor: pointer; }
   #skills details.description[open] summary { display: none; }
+  #skills details.description.measuring summary { display: block; }
+  #skills details.description.measuring summary::before { content: none; }
   #skill:empty { display: none; }
   #skill .card-title h2 { font-family: var(--mono); font-size: 21px; letter-spacing: 0; }
   #skill a { color: var(--accent); word-break: break-all; font-size: 13px; }
@@ -352,6 +371,7 @@ ${filterCount}
 // The last scan: its repository, and each skill with its item in the list; the selected one.
 let scanned = null;
 let selected = null;
+let hovered = null;
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -381,10 +401,29 @@ function description(skill) {
   return plain;
 }
 
-// One sentence that is longer than its two lines folds too, once it is on screen and measured.
-function foldIfClamped(item, skill) {
-  const short = item.querySelector('div.description > .clamp');
-  if (short && short.scrollHeight > short.clientHeight + 1) short.parentElement.replaceWith(fold(short, skill.description));
+// One sentence folds only while it is longer than its two lines: measured on screen, again on a resize
+// or a zoom, and when a filter shows the row. A fold is measured where it is, without its ▸ (so a focused
+// summary keeps the focus), and a row is rebuilt only when its state changes. Read all, then write.
+function foldIfClamped() {
+  if (!scanned) return;
+  const rows = [];
+  for (const { skill, item } of scanned.entries) {
+    const shown = item.querySelector('.description');
+    if (skill.summary !== skill.description || item.hidden || !shown || shown.hidden || shown.open) continue;
+    const folded = shown.matches('details');
+    if (folded) shown.classList.add('measuring');
+    rows.push({ skill, shown, folded, short: shown.querySelector('.clamp') });
+  }
+  const clamped = rows.map(({ short }) => short.scrollHeight > short.clientHeight + 1);
+  rows.forEach(({ skill, shown, folded, short }, i) => {
+    if (folded) shown.classList.remove('measuring');
+    if (clamped[i] === folded) return;
+    if (folded) {
+      const plain = el('div', 'description');
+      plain.append(short);
+      shown.replaceWith(plain);
+    } else shown.replaceWith(fold(short, skill.description));
+  });
 }
 
 function fold(short, text) {
@@ -405,11 +444,27 @@ function nothingSelected() {
   selected = null;
   for (const item of $('skills').querySelectorAll('li[role="option"]')) item.setAttribute('aria-selected', 'false');
   $('skill').replaceChildren(el('p', 'placeholder', 'Select a skill to read its SKILL.md.'));
+  drawLines();
+}
+
+// The line between two skills shown one after the other, on the second (class "line"): none above the
+// first skill shown, nor under a repository's heading, the rows the filter hides skipped; none next to
+// the hovered or the selected skill.
+function drawLines() {
+  const quiet = (row) => row === hovered || row.getAttribute('aria-selected') === 'true';
+  let previous = null;
+  for (const item of $('skills').children) {
+    if (item.hidden) continue;
+    if (item.getAttribute('role') !== 'option') { previous = null; continue; }
+    item.classList.toggle('line', previous !== null && !quiet(previous) && !quiet(item));
+    previous = item;
+  }
 }
 
 function show(skill, item) {
   selected = { skill, item };
   for (const other of $('skills').querySelectorAll('li[role="option"]')) other.setAttribute('aria-selected', String(other === item));
+  drawLines();
   const view = $('skill');
   const title = el('div', 'card-title');
   title.append($('file-icon').content.cloneNode(true), el('h2', '', skill.name));
@@ -443,13 +498,17 @@ function list(skills, group) {
   for (const skill of skills) {
     const item = el('li');
     item.setAttribute('role', 'option');
-    item.append(el('div', 'name', skill.name));
+    // A stacked row: the name and its day on one line, the description under them.
+    const head = el('div', 'head');
+    head.append(el('div', 'name', skill.name));
+    if (skill.updated) head.append(updated('span', skill.updated));
+    item.append(head);
     if (skill.description) item.append(description(skill));
     item.append(el('div', 'snippet'));
-    if (skill.updated) item.append(updated('div', skill.updated));
     item.addEventListener('click', () => show(skill, item));
+    item.addEventListener('mouseenter', () => { hovered = item; drawLines(); });
+    item.addEventListener('mouseleave', () => { if (hovered === item) hovered = null; drawLines(); });
     $('skills').append(item);
-    foldIfClamped(item, skill);
     scanned.entries.push({ skill, item, group });
   }
 }
@@ -524,26 +583,52 @@ function applyFilter() {
   $('count').textContent = filterCount(shown, total, filter);
   setStatus(shown === total ? scanned.summary : scanned.id + ' · ' + shown + ' of ' + count(total, 'skill'));
   $('no-match').textContent = total && !shown ? 'No skills match "' + filter.trim() + '"' : '';
+  foldIfClamped();
   if (!shown) {
     nothingSelected();
   } else if (!selected || selected.item.hidden) {
     const first = scanned.entries.find(({ item }) => !item.hidden);
     show(first.skill, first.item);
   }
+  drawLines();
 }
 
 // The link of this view: ?repo= for the scan, ?filter= for the filter field while it has words.
+// A new scan is a new entry in the history, like any link opened; the same link again, or typing
+// in the filter, replaces the entry. The link's ?repo= is compared trimmed, as the field is scanned.
 function updateLink(repo) {
   const params = new URLSearchParams(location.search);
+  const isNewScan = repo !== undefined && repo !== params.get('repo')?.trim();
   if (repo !== undefined) params.set('repo', repo);
   const filter = $('filter').value;
   if (filter.trim()) params.set('filter', filter.trim());
   else params.delete('filter');
   const query = params.toString();
-  history.replaceState(null, '', query ? '?' + query : location.pathname);
+  history[isNewScan ? 'pushState' : 'replaceState'](null, '', query ? '?' + query : location.pathname);
+}
+
+// Each scan is numbered: an answer that comes after a newer scan (Back while scanning) is dropped.
+let scans = 0;
+
+// The page before any scan: only the header.
+function empty() {
+  scans++;
+  scanned = null;
+  selected = null;
+  $('organization').hidden = true;
+  $('scan').disabled = false;
+  $('status').className = '';
+  $('status').textContent = '';
+  $('warnings').replaceChildren();
+  $('skills').replaceChildren();
+  $('skill').replaceChildren();
+  $('no-match').textContent = '';
+  $('count').textContent = '';
+  $('results').hidden = true;
 }
 
 async function scan(repo) {
+  const current = ++scans;
   scanned = null;
   selected = null;
   $('no-match').textContent = '';
@@ -555,11 +640,13 @@ async function scan(repo) {
   setStatus('Scanning ' + repo + '…');
   $('warnings').replaceChildren();
   $('skills').replaceChildren();
+  hovered = null;
   $('skill').replaceChildren();
   $('results').hidden = true;
   try {
     const response = await fetch('/api/scan?repo=' + encodeURIComponent(repo));
     const answer = await response.json();
+    if (current !== scans) return;
     if (!response.ok) throw new Error(answer.error);
     // Shown before the skills are listed: a description is measured, to fold, only on screen.
     $('results').hidden = false;
@@ -589,10 +676,11 @@ async function scan(repo) {
     }
     applyFilter();
   } catch (error) {
+    if (current !== scans) return;
     $('organization').hidden = true;
     setStatus(error.message, 'error');
   } finally {
-    $('scan').disabled = false;
+    if (current === scans) $('scan').disabled = false;
   }
 }
 
@@ -603,6 +691,9 @@ $('form').addEventListener('submit', (event) => {
   updateLink(repo);
   scan(repo);
 });
+
+// A narrower window, or a zoom, can cut a sentence that fitted; a wider one, let it fit.
+window.addEventListener('resize', foldIfClamped);
 
 $('filter').addEventListener('input', () => {
   applyFilter();
@@ -626,9 +717,18 @@ async function suggest() {
 }
 suggest();
 
-$('filter').value = new URLSearchParams(location.search).get('filter') || '';
-const initial = new URLSearchParams(location.search).get('repo');
-if (initial) { $('repo').value = initial; scan(initial); }
+// The view of this link: its filter, and its scan (or the empty page without ?repo=).
+function openLink() {
+  const params = new URLSearchParams(location.search);
+  $('filter').value = params.get('filter') || '';
+  const repo = params.get('repo');
+  $('repo').value = repo || '';
+  if (repo) scan(repo);
+  else empty();
+}
+// Back and Forward: the link of that entry, scanned afresh.
+window.addEventListener('popstate', openLink);
+openLink();
 </script>
 </body>
 </html>

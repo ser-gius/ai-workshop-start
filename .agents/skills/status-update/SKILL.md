@@ -10,7 +10,10 @@ resolved since a date and time. Facts from GitHub only, nothing guessed or summa
 
 ## 1. The start
 - Take the date and time from the request ("since Monday 9:00", "since 2026-11-25 14:30 CET").
-  No date at all: ask. A date without a time: 00:00 of that day.
+  A date without a time: 00:00 of that day.
+- No date at all, nor anything to take it from: the last month, from this moment one month
+  ago (`SINCE=$(date -u -d '1 month ago' +%FT%TZ)`). Do not ask; the message says
+  "since <that time> (the last month; no start was given)", so the default is on record.
 - No time zone given: the user's own (`$TZ`, else the machine's). Say which one in the message.
 - Convert it to UTC for GitHub's search; keep the original for the message:
 

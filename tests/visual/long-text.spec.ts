@@ -58,8 +58,8 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('#repositories option')).toHaveCount(2);
 });
 
-test('a long skill name wraps in its half of the row; its description keeps the other half', async ({ page }) => {
-  const long = { ...skill(LONG_NAME, 'Its description has no room left beside the name.'), copies: [DEEP + 'SKILL.md'],
+test('a long skill name wraps on its own line; its description stays under it', async ({ page }) => {
+  const long = { ...skill(LONG_NAME, 'Its description stays under the name.'), copies: [DEEP + 'SKILL.md'],
     link: 'https://github.com/octo/long/blob/main' + DEEP + 'SKILL.md' };
   await answering(page, { repository: repository('octo/long'), warnings: [],
     skills: [long, skill('commits', 'Write commit messages.')] } satisfies ScanAnswer);
@@ -70,8 +70,9 @@ test('a long skill name wraps in its half of the row; its description keeps the 
   await inside(page, '#skills .description', '#list');
   const row = page.locator('#skills li[role="option"]').first();
   const [rowBox, nameBox, descriptionBox] = await Promise.all([row, row.locator('.name'), row.locator('.description')].map((l) => l.boundingBox()));
-  expect(nameBox!.width, 'the name: at most half the row').toBeLessThanOrEqual(rowBox!.width / 2);
-  expect(descriptionBox!.width, 'the description keeps its place').toBeGreaterThan(rowBox!.width / 3);
+  expect(nameBox!.height, 'the long name wraps onto a few lines').toBeGreaterThan(30);
+  expect(nameBox!.x + nameBox!.width, 'the name: inside its row').toBeLessThanOrEqual(rowBox!.x + rowBox!.width);
+  expect(descriptionBox!.y, 'the description: under the name').toBeGreaterThanOrEqual(nameBox!.y + nameBox!.height - 1);
   await expect(row.locator('.description')).toBeVisible();
   // A short name keeps its own width, on one line.
   const short = page.locator('#skills li[role="option"]').nth(1).locator('.name');
