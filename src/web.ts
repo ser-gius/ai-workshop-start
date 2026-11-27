@@ -222,7 +222,8 @@ const PAGE = `<!doctype html>
   /* The header on one row: the name, the field, and what was scanned. */
   .header-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
   .header-row h1 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
-  .header-row #form { flex: 1 1 360px; }
+  /* min-width: 0 lets the field shrink below its content on a narrow screen, Scan inside the card. */
+  .header-row #form { flex: 1 1 360px; min-width: 0; }
   .header-row #status { margin-top: 0; font-family: var(--mono); white-space: nowrap; }
   .header-row #status.error { font-family: var(--sans); white-space: normal; }
   /* The skills and their filter: only once a scan has answered. */
@@ -235,7 +236,8 @@ const PAGE = `<!doctype html>
   #warnings { margin: 6px 0 0; padding-left: 20px; color: var(--warn); font-size: 13px; }
   #warnings:empty { display: none; }
   main { display: grid; grid-template-columns: minmax(320px, 560px) minmax(0, 1fr); gap: 24px; align-items: start; }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  /* A narrow screen: the list above the SKILL.md, and what was scanned wraps inside the header. */
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } .header-row #status { white-space: normal; overflow-wrap: anywhere; } }
   #no-match { margin: 12px 4px 2px; color: var(--muted); }
   #no-match:empty { display: none; }
   #skills { list-style: none; margin: 8px 0 0; padding: 0; }
