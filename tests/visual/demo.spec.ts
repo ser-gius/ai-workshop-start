@@ -110,6 +110,15 @@ test('org: scanning, the card and the grouped skills, then the filter `review` a
   await filter(page, 'review');
   await expect(page.locator('#count')).toHaveText(/^\d+ of \d+$/);
   await expect(page).toHaveScreenshot('org-review.png');
+
+  // The list scrolls to the focused skill: End reaches the last one, off screen until then.
+  await page.locator('#filter').fill('');
+  const last = skills(page).last();
+  await expect(last).not.toBeInViewport();
+  await skills(page).first().locator('.name').click(); // the focus on the first skill
+  await page.keyboard.press('End');
+  await expect(last).toBeFocused();
+  await expect(last).toBeInViewport();
 });
 
 test('link: `?repo=…&filter=gradle` opens the filtered view at once', async ({ page }) => {
