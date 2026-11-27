@@ -38,7 +38,7 @@ export function topicsPrompt(skills: TopicSkill[]): string {
 /**
  * The model's answer as topics: the JSON object in it, `{ topics: [{ title, skills: [<name>] }] }`.
  * A name it made up is dropped; a skill in two topics stays in the first; a topic left empty is
- * dropped; a skill it left out goes to `Other`. Undefined when the answer has no topic at all:
+ * dropped; a skill it left out goes to `Other`, last (the model's own `Other` too). Undefined when the answer has no topic at all:
  * not JSON, or not that shape.
  */
 export function parseTopics(answer: string, skills: TopicSkill[]): Topic[] | undefined {
@@ -65,6 +65,9 @@ export function parseTopics(answer: string, skills: TopicSkill[]): Topic[] | und
   if (!topics.length) return undefined;
   const rest = skills.filter((skill) => !taken.has(skill.id)).map((skill) => skill.id);
   if (rest.length) add(topics, OTHER, rest);
+  // The model's own `Other` too (any case): last, with the skills it left out.
+  const other = topics.findIndex((topic) => topic.title.toLowerCase() === OTHER.toLowerCase());
+  if (other !== -1) topics.push(...topics.splice(other, 1));
   return topics;
 }
 

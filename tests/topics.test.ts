@@ -54,6 +54,19 @@ test('the model: a made-up name dropped, a skill in two topics in the first, one
   ]);
 });
 
+test('the model: its own Other topic, not last, takes the skills it left out and moves last', () => {
+  const answer = JSON.stringify({ topics: [{ title: 'other', skills: ['a'] }, { title: 'Git', skills: ['commits'] }] });
+  assert.deepEqual(parseTopics(answer, skills('a', 'commits', 'stray')), [
+    { title: 'Git', skills: ids('commits') },
+    { title: 'other', skills: ids('a', 'stray') },
+  ]);
+  // Its Other with nothing left out moves last too.
+  assert.deepEqual(parseTopics(answer, skills('a', 'commits')), [
+    { title: 'Git', skills: ids('commits') },
+    { title: 'other', skills: ids('a') },
+  ]);
+});
+
 test('the model: the same name in two repositories, both skills where the name goes; the prompt has it once', () => {
   const twice: TopicSkill[] = [
     { id: 'a/x:skills/commits/SKILL.md', name: 'commits', description: 'Commit.' },
