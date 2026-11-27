@@ -223,29 +223,32 @@ const PAGE = `<!doctype html>
   .header-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
   .header-row h1 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
   .header-row #form { flex: 1 1 360px; }
-  .header-row #status { margin-top: 0; font-family: var(--mono); white-space: nowrap; }
-  .header-row #status.error { font-family: var(--sans); white-space: normal; }
+  /* What was scanned, on one line: a long link is cut with …, the whole of it on hover; an error wraps. */
+  .header-row #status { margin-top: 0; min-width: 0; max-width: 100%; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header-row #status.error { font-family: var(--sans); white-space: normal; overflow-wrap: anywhere; }
   /* The skills and their filter: only once a scan has answered. */
   main[hidden] { display: none; }
   #skill .placeholder { margin: 0; color: var(--muted); font-size: 17px; }
-  #suggestions { margin-top: 6px; color: var(--muted); font-size: 12px; }
+  #suggestions { margin-top: 6px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
   #suggestions:empty { display: none; }
   #status { margin-top: 10px; color: var(--muted); min-height: 1.4em; }
   #status.error { color: var(--error); }
-  #warnings { margin: 6px 0 0; padding-left: 20px; color: var(--warn); font-size: 13px; }
+  #warnings { margin: 6px 0 0; padding-left: 20px; color: var(--warn); font-size: 13px; overflow-wrap: anywhere; }
   #warnings:empty { display: none; }
   main { display: grid; grid-template-columns: minmax(320px, 560px) minmax(0, 1fr); gap: 24px; align-items: start; }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
-  #no-match { margin: 12px 4px 2px; color: var(--muted); }
+  @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+  /* A long text with no spaces wraps inside its card, never past it. */
+  #no-match { margin: 12px 4px 2px; color: var(--muted); overflow-wrap: anywhere; }
   #no-match:empty { display: none; }
   #skills { list-style: none; margin: 8px 0 0; padding: 0; }
   #skills:empty { display: none; }
   #skills [hidden] { display: none !important; }
-  #skills li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; align-items: baseline; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+  /* The name takes at most half the row, wrapping if longer: the description keeps the other half. */
+  #skills li { display: grid; grid-template-columns: fit-content(50%) minmax(0, 1fr); column-gap: 14px; align-items: baseline; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
   #skills li:hover { background: #eeece6; }
   #skills li[aria-selected="true"] { background: var(--tile); box-shadow: inset 3px 0 0 var(--accent); }
-  #skills .name { grid-column: 1; grid-row: 1; font: 15px/1.5 var(--mono); white-space: nowrap; }
-  #skills .description, #skills .snippet { grid-column: 2; grid-row: 1 / span 2; color: var(--muted); font-size: 14px; min-width: 0; }
+  #skills .name { grid-column: 1; grid-row: 1; min-width: 0; font: 15px/1.5 var(--mono); overflow-wrap: anywhere; }
+  #skills .description, #skills .snippet { grid-column: 2; grid-row: 1 / span 2; color: var(--muted); font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
   #skills .snippet { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* The day it last changed, under its name: the description keeps its width. */
   #skills .updated { grid-column: 1; grid-row: 2; color: var(--muted); font: 12px/1.4 var(--mono); white-space: nowrap; }
@@ -267,7 +270,7 @@ const PAGE = `<!doctype html>
   .more { color: var(--muted); padding-top: 2px; }
   .more:empty { display: none; }
   /* An organization's skills: a heading per repository. */
-  #skills li.group { display: block; padding: 12px 8px 4px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: default; }
+  #skills li.group { display: block; padding: 12px 8px 4px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: default; overflow-wrap: anywhere; }
   #skills li.group:hover { background: none; }
   #skills li.group a { color: inherit; text-decoration: none; }
   #skills li.group a:hover { text-decoration: underline; }
@@ -283,7 +286,7 @@ const PAGE = `<!doctype html>
   #skill:empty { display: none; }
   #skill .card-title h2 { font-family: var(--mono); font-size: 21px; letter-spacing: 0; }
   #skill a { color: var(--accent); word-break: break-all; font-size: 13px; }
-  #skill .copies, #skill .updated { margin-top: 2px; color: var(--muted); font-size: 13px; }
+  #skill .copies, #skill .updated { margin-top: 2px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
   pre { margin: 12px 0 0; white-space: pre-wrap; word-wrap: break-word; font: 13px/1.55 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
 </style>
 </head>
@@ -333,6 +336,12 @@ const PAGE = `<!doctype html>
 <template id="file-icon"><span class="tile"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg></span></template>
 <script>
 const $ = (id) => document.getElementById(id);
+// What was scanned, in the header: cut with … when long, so its whole text is on hover too.
+function setStatus(text, className = '') {
+  $('status').className = className;
+  $('status').textContent = text;
+  $('status').title = text;
+}
 ${filterWords}
 ${matchesFilter}
 ${highlightRanges}
@@ -453,6 +462,7 @@ const TOP = 3;
 function organizationScanning(owner) {
   $('organization').hidden = false;
   $('org-name').textContent = 'github.com/' + owner;
+  $('org-name').title = $('org-name').textContent;
   $('org-count').textContent = '…';
   $('org-progress').className = 'progress running';
   $('org-progress').removeAttribute('aria-valuenow');
@@ -465,6 +475,7 @@ function organizationScanning(owner) {
 function organizationScanned(answer) {
   $('organization').hidden = false;
   $('org-name').textContent = 'github.com/' + answer.organization.id;
+  $('org-name').title = $('org-name').textContent;
   $('org-count').textContent = count(answer.organization.repositories, 'repository', 'repositories');
   $('org-progress').className = 'progress';
   $('org-progress').setAttribute('aria-valuenow', '100');
@@ -510,7 +521,7 @@ function applyFilter() {
   for (const group of scanned.groups) group.hidden = !scanned.entries.some((entry) => entry.group === group && !entry.item.hidden);
   const total = scanned.entries.length;
   $('count').textContent = filterCount(shown, total, filter);
-  $('status').textContent = shown === total ? scanned.summary : scanned.id + ' · ' + shown + ' of ' + count(total, 'skill');
+  setStatus(shown === total ? scanned.summary : scanned.id + ' · ' + shown + ' of ' + count(total, 'skill'));
   $('no-match').textContent = total && !shown ? 'No skills match "' + filter.trim() + '"' : '';
   if (!shown) {
     nothingSelected();
@@ -540,8 +551,7 @@ async function scan(repo) {
   if (owner) organizationScanning(owner[1]);
   else $('organization').hidden = true;
   $('scan').disabled = true;
-  $('status').className = '';
-  $('status').textContent = 'Scanning ' + repo + '…';
+  setStatus('Scanning ' + repo + '…');
   $('warnings').replaceChildren();
   $('skills').replaceChildren();
   $('skill').replaceChildren();
@@ -579,8 +589,7 @@ async function scan(repo) {
     applyFilter();
   } catch (error) {
     $('organization').hidden = true;
-    $('status').className = 'error';
-    $('status').textContent = error.message;
+    setStatus(error.message, 'error');
   } finally {
     $('scan').disabled = false;
   }

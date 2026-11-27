@@ -32,6 +32,16 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
     ignoring case: the name without the owner, in monospace, linked, and `N skills`; then `+<n> more`
     when there are more. With 3 or fewer: `<n> with skills`, no `+<n> more`; with none: `No repository with skills`
   - Hidden for a repository or a local directory, and on a failure (its message shows instead)
+## Long texts
+Every text stays **inside its card**, even a long one with no spaces; the page never scrolls sideways
+- A skill's **name** takes at most *half* its row, wrapped (at a `-`, else anywhere) when longer:
+  the description keeps the other half
+  `a-very-long-skill-name-without-any-spaces-that-goes-on-and-on-and-on-forever-and-ever` → on a few lines, its description beside it
+- **Wrapped**: `No skills match "<filter>"`, a word in a description, a repository's heading, a warning,
+  `also in <paths>`, the selected skill's name and link, an error in the header
+- **Cut with `…`**, on one line, the whole text on hover: what was scanned in the header
+  (`Scanning /tmp/deep/deep/deep/…`, `JetBrains/kotlin · 6 skills`), so the header stays one row; and an
+  organization's name and top repositories in its card
 ## Filter
 A **filter field** above the skill list narrows it *as you type*, no new scan
 - Its **words** (split on spaces) are matched against a skill's **name** and whole **description**:
