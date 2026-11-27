@@ -117,6 +117,21 @@ test('a folder that cannot be read → a warning, the rest of the directory is s
   assert.equal(root.stderr, `Not a GitHub URL or a readable directory: ${locked.root}\n`);
 });
 
+test('a folder that can be listed but not entered, or a SKILL.md that cannot be read → not readable, the skill skipped', async (t) => {
+  const locked = lockedFixture(t, { '.claude/skills/commits': 0o644, '.github/skills/code-style/SKILL.md': 0o000 });
+  if (locked.skip) return t.skip(locked.skip);
+  const scanned = await atlas(['scan', locked.root]);
+  assert.equal(scanned.code, 0, scanned.stderr);
+  assert.match(scanned.stdout, /^locked · 5 skills\n/);
+  assert.doesNotMatch(scanned.stdout, /^(commits|code-style) /m);
+  const warnings = scanned.stderr.split('\n').filter(Boolean);
+  assert.deepEqual(warnings.filter((line) => /not readable|not found/.test(line)).sort(), [
+    'warning: .claude/skills/commits: not readable; skipped',
+    'warning: .github/skills/code-style/SKILL.md: not readable; skipped',
+    'warning: private: not readable; skipped',
+  ]);
+});
+
 test('rate limit → a message that asks for GITHUB_TOKEN', async () => {
   const limited = replay({
     'https://api.github.com/repos/JetBrains/MPS': {

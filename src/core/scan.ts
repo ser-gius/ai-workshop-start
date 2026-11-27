@@ -1,4 +1,4 @@
-import { AtlasError, EmptyRepositoryError, UnavailableError } from './errors.ts';
+import { AtlasError, EmptyRepositoryError, UnavailableError, UnreadableError } from './errors.ts';
 import { findSkills, type SkillFile } from './find.ts';
 import { compareText, skillFolder, sortSkills, type Organization, type Repository, type Skill } from './model.ts';
 import { parseSkill } from './parse.ts';
@@ -10,7 +10,7 @@ export type Source = {
   paths: string[];
   /** What listing the files had to leave out. */
   warnings: string[];
-  /** The file's bytes, or undefined if it is not there. */
+  /** The file's bytes, or undefined if it is not there; an UnreadableError if it is there but cannot be read. */
   read(path: string): Promise<Uint8Array | undefined>;
   /**
    * When a skill last changed: the time of the latest commit, up to the scanned one, that touched one of
@@ -35,7 +35,8 @@ export async function scan(source: Source): Promise<ScanResult> {
 
 async function readSkill(source: Source, file: SkillFile): Promise<{ skill?: Skill; warnings: string[] }> {
   // Its folder and its copies': the skill's files, wherever an agent reads them.
-  const [bytes, last] = await Promise.all([source.read(file.path), lastUpdate(source, [file.path, ...file.copies].map(skillFolder))]);
+  const [bytes, last] = await Promise.all([readable(source, file.path), lastUpdate(source, [file.path, ...file.copies].map(skillFolder))]);
+  if (bytes instanceof UnreadableError) return { warnings: [bytes.message] };
   if (!bytes) return { warnings: [`${file.path}: listed, but not found at the scanned commit; skipped`] };
   const text = new TextDecoder().decode(bytes);
   const parsed = parseSkill(text);
@@ -52,6 +53,16 @@ async function readSkill(source: Source, file: SkillFile): Promise<{ skill?: Ski
   };
   const warnings = [parsed.warning, last.warning].filter((warning) => warning !== undefined);
   return { skill, warnings: warnings.map((warning) => `${file.path}: ${warning}`) };
+}
+
+/** The file's bytes; the error instead when it is there but cannot be read, for its skill's warning. */
+async function readable(source: Source, path: string): Promise<Uint8Array | undefined | UnreadableError> {
+  try {
+    return await source.read(path);
+  } catch (error) {
+    if (error instanceof UnreadableError) return error;
+    throw error;
+  }
 }
 
 /**

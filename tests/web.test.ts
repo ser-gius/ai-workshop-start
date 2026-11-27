@@ -389,6 +389,19 @@ test('a local directory with a folder that cannot be read: its skills, and a war
   assert.equal(page.document.querySelector('#warnings li')?.textContent, 'private: not readable; skipped');
 });
 
+test('a local directory with a folder that cannot be entered and a SKILL.md that cannot be read: their warnings in the answer', async (t) => {
+  const locked = lockedFixture(t, { '.claude/skills/commits': 0o644, '.github/skills/code-style/SKILL.md': 0o000 });
+  if (locked.skip) return t.skip(locked.skip);
+  const { status, body } = await scan(locked.root);
+  assert.equal(status, 200);
+  assert.deepEqual(body.skills.map((skill) => skill.name).filter((name) => name === 'commits' || name === 'code-style'), []);
+  assert.deepEqual(body.warnings.filter((warning) => /not readable|not found/.test(warning)).sort(), [
+    '.claude/skills/commits: not readable; skipped',
+    '.github/skills/code-style/SKILL.md: not readable; skipped',
+    'private: not readable; skipped',
+  ]);
+});
+
 test('an organization: its repositories with skills, grouped, each skill with its link and SKILL.md, and warnings', async () => {
   const response = await fetch(`${url}api/scan?repo=${encodeURIComponent('https://github.com/octo-org')}`);
   assert.equal(response.status, 200);

@@ -214,17 +214,19 @@ export const USER: Recording = {
 
 /**
  * A copy of the fixture, `locked`, with a folder no one may read: `private/` (a root-owned Docker
- * volume, a `postgres-data/`). Git keeps no permissions, so it is made here; removed after the test.
+ * volume, a `postgres-data/`), and any of its paths set to another mode (`{ '.claude/skills/commits': 0o644 }`).
+ * Git keeps no permissions, so it is made here; removed after the test.
  * Root reads every folder: there the case cannot happen, and `skip` says why.
  */
-export function lockedFixture(t: { after(fn: () => void): void }): { root: string; skip?: string } {
+export function lockedFixture(t: { after(fn: () => void): void }, modes: Record<string, number> = {}): { root: string; skip?: string } {
   const root = join(mkdtempSync(join(tmpdir(), 'skill-atlas-')), 'locked');
   cpSync(FIXTURE, root, { recursive: true });
   mkdirSync(join(root, 'private'));
-  chmodSync(join(root, 'private'), 0o000);
+  const locked = { private: 0o000, ...modes };
+  for (const [path, mode] of Object.entries(locked)) chmodSync(join(root, path), mode);
   t.after(() => {
     chmodSync(root, 0o700); // a test may lock the directory itself too
-    chmodSync(join(root, 'private'), 0o700);
+    for (const path of Object.keys(locked)) chmodSync(join(root, path), 0o700);
     rmSync(join(root, '..'), { recursive: true, force: true });
   });
   return process.getuid?.() === 0 ? { root, skip: 'root reads every folder' } : { root };

@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
 import type { Dirent } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { access, constants, readdir, readFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
-import { AtlasError } from './core/errors.ts';
+import { AtlasError, UnreadableError } from './core/errors.ts';
 import { limiter } from './core/github.ts';
 import { utc } from './core/model.ts';
 import type { Source } from './core/scan.ts';
@@ -32,9 +32,16 @@ export async function openDirectory(input: string): Promise<Source> {
     repository: { id: name, organization: 'local', name, url: pathToFileURL(root).href, commit: '' },
     paths,
     warnings,
-    read: (path) => readFile(join(root, path)).then((bytes) => new Uint8Array(bytes), () => undefined),
+    read: (path) => readFile(join(root, path)).then((bytes) => new Uint8Array(bytes), (error) => missing(error, path)),
     updated: (folders) => limit(() => lastCommit(root, folders, shallow)),
   };
+}
+
+/** A file gone since the listing is not there: undefined. One there but not readable (`chmod 000`) says so. */
+function missing(error: unknown, path: string): undefined {
+  const { code } = error as { code?: unknown };
+  if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+  throw new UnreadableError(`${path}: not readable; skipped`);
 }
 
 /**
@@ -94,7 +101,8 @@ async function git(root: string, args: string[]): Promise<string> {
 
 /**
  * Every regular file under the directory, as a path relative to the root, from its entries.
- * A folder that cannot be read (a root-owned Docker volume) is a warning, and the walk goes on.
+ * A folder that cannot be read (a root-owned Docker volume) is a warning, and the walk goes on;
+ * so is one that can be listed but not entered (`r` without `x`): none of its files could be read.
  */
 async function walk(root: string, directory: string, entries: Dirent[], paths: string[], warnings: string[]): Promise<void> {
   // One list for the whole walk: a large repository has more files than a spread can pass.
@@ -104,6 +112,7 @@ async function walk(root: string, directory: string, entries: Dirent[], paths: s
       let inside: Dirent[];
       try {
         inside = await readdir(join(root, path), { withFileTypes: true });
+        await access(join(root, path), constants.X_OK);
       } catch {
         warnings.push(`${path}: not readable; skipped`);
         continue;

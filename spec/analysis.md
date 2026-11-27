@@ -18,6 +18,9 @@ Skill: id = `repo:path`, name, description, commit, updated
 - A local directory that cannot be read, or none → `Not a GitHub URL or a readable directory: <input>`, exit code 1.
   A folder *in it* that cannot be read (a root-owned Docker volume, a `postgres-data/`) → a *warning*
   (`<path>: not readable; skipped`: `private: not readable; skipped`), the scan goes on without it
+  So is a folder that can be listed but not entered (`chmod 644`: `.claude/skills/commits: not readable; skipped`),
+  and a `SKILL.md` that cannot be read (`chmod 000`: `.github/skills/code-style/SKILL.md: not readable; skipped`):
+  its skill is left out
 - GitHub's rate limit, when it says to wait *a minute* or less (code search: 10 requests a minute) →
   wait, then ask again, twice at most; a longer wait → `GitHub rate limit reached; try again in <n> minutes`, exit code 1.
   `<n>` is GitHub's wait rounded up: `Retry-After: 120` → `2 minutes`. When GitHub names the limit

@@ -16,4 +16,4 @@ A small repository for the tests.
 | `.claude/skills/commits/examples/SKILL.md` | below a skill: not a skill |
 
 Made by the tests, not committed (git keeps no permissions): `locked`, a copy with a `private/` folder
-no one may read (`lockedFixture` in `tests/helpers.ts`).
+no one may read, and other paths a test locks too (`lockedFixture` in `tests/helpers.ts`).
