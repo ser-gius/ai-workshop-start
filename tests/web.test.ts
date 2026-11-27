@@ -1,7 +1,7 @@
 // spec/web.md: the local web view, over ./fixture and the GitHub repository answered in tests/helpers.ts.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { request } from 'node:http';
 import { delimiter, join } from 'node:path';
@@ -13,7 +13,7 @@ import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
 import { filterCount, filterSnippet, highlightRanges, matchesFilter, serve, topicChips, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
 import { OTHER, type TopicSkill } from '../src/core/topics.ts';
-import { CLI, claudeAnswering, EXAMPLE_COMMIT, EXAMPLE_UPDATED, FIXTURE, open, stubClaude, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
+import { CLI, claudeAnswering, EXAMPLE_COMMIT, EXAMPLE_UPDATED, FIXTURE, lockedFixture, open, stubClaude, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
 
 // The token goes to GitHub with every /user/repos request.
 const authorized: Fetch = (requested, init) => {
@@ -47,7 +47,8 @@ test('the page has a field for a repository link, a skill list and a SKILL.md vi
   assert.match(page, /<input id="repo"[^>]*aria-label="Repository link"/);
   assert.match(page, /<ul id="skills"/);
   assert.match(page, /el\('pre', 'skill-md', skill\.text\)/);
-  assert.match(page, /URLSearchParams\(location\.search\)\.get\('repo'\)/);
+  assert.match(page, /const params = new URLSearchParams\(location\.search\);\n[^]*?params\.get\('repo'\)/, '?repo= scans at once');
+  assert.match(page, /addEventListener\('popstate', openLink\)/, 'Back and Forward open their link');
   assert.match(page, /<input id="repo"[^>]*list="repositories"/);
   assert.match(page, /<datalist id="repositories">/);
   assert.match(page, /fetch\('\/api\/repositories'\)/, 'the suggestions load on start');
@@ -104,16 +105,20 @@ test('the filter: empty or only spaces → every skill; no match → none', asyn
 });
 
 /** The served page, its own script running in a DOM, at `?<query>`, asking this server; closed after the test. */
-async function openPage(t: { after(fn: () => void): void }, query: string) {
+async function openPage(t: { after(fn: () => void): void }, query: string, hold?: (repo: string) => Promise<void>) {
   const html = await (await fetch(url)).text();
   const scans: string[] = [];
   const dom = new JSDOM(html, {
-    url: `${url}?${query}`,
+    url: query ? `${url}?${query}` : url,
     runScripts: 'dangerously',
     beforeParse(window) {
-      (window as unknown as { fetch: typeof fetch }).fetch = (path) => {
+      (window as unknown as { fetch: typeof fetch }).fetch = async (path) => {
         const asked = new URL(String(path), url);
-        if (asked.pathname === '/api/scan') scans.push(asked.searchParams.get('repo') ?? '');
+        if (asked.pathname === '/api/scan') {
+          const repo = asked.searchParams.get('repo') ?? '';
+          scans.push(repo);
+          await hold?.(repo);
+        }
         return fetch(asked);
       };
     },
@@ -122,6 +127,7 @@ async function openPage(t: { after(fn: () => void): void }, query: string) {
   const { document } = dom.window;
   const $ = (id: string) => document.getElementById(id) as HTMLElement & { value: string; disabled: boolean };
   const page = {
+    document,
     scans,
     status: () => $('status').textContent,
     /** The skills in the list, by name. */
@@ -171,8 +177,29 @@ async function openPage(t: { after(fn: () => void): void }, query: string) {
       assert.equal($('scan').disabled, true, 'a new scan started');
       await page.scanned();
     },
+    /** Scans this link from the field, as the user does: its Scan button. */
+    async scanLink(repo: string) {
+      $('repo').value = repo;
+      await page.scanAgain();
+    },
+    /** The field's link. */
+    field: () => $('repo').value,
+    /** How many entries the tab's history has. */
+    history: () => dom.window.history.length,
+    /** The browser's Back (or Forward) button: until the page has moved, and scanned when it has a link. */
+    async go(delta: -1 | 1) {
+      const moved = new Promise((resolve, reject) => {
+        dom.window.addEventListener('popstate', resolve, { once: true });
+        setTimeout(() => reject(new Error('the page did not move: no history entry there')), 2000);
+      });
+      dom.window.history.go(delta);
+      await moved;
+      if (page.linkedRepo() !== null) await page.scanned();
+    },
+    /** Whether the skills and their filter are on screen. */
+    resultsShown: () => !$('results').hidden,
   };
-  await page.scanned();
+  if (query) await page.scanned();
   return page;
 }
 
@@ -205,6 +232,14 @@ test('the highlight: every occurrence of every word, case-insensitive', () => {
   assert.equal(bracketed('checklist', 'checkl eckli'), '[checkli]st', 'overlapping matches: one highlight');
   assert.equal(bracketed('aaa', 'aa'), '[aaa]', 'overlapping occurrences of one word');
   assert.deepEqual(highlightRanges('anything', '   '), [], 'no words: nothing');
+  assert.equal(
+    bracketed('İİİİ Turkish capitals first, then the word target here.', 'capitals target'),
+    'İİİİ Turkish [capitals] first, then the word [target] here.',
+    "a longer lower case ('İ' → 'i̇') does not shift the matches after it",
+  );
+  assert.equal(bracketed('İstanbul İzmir', 'i'), '[İ]stanbul [İ]zm[i]r', 'a match in part of a letter: the whole letter; touching: one highlight');
+  assert.equal(bracketed('İSTANBUL', 'i̇stanbul'), '[İSTANBUL]', 'the lower case typed: the whole word');
+  assert.equal(bracketed('ΟΔΟΣ', 'οδος'), '[ΟΔΟΣ]', 'a final sigma, as matchesFilter sees it');
   assert.deepEqual(highlightRanges('anything', 'zzz'), []);
 });
 
@@ -222,6 +257,11 @@ test('the snippet: around the first match, from the start of a word, cut with �
   assert.equal(filterSnippet(long, 'generates'), 'Generates the typesystem aspect of a language: inference rules, checking rules and the Wh…', 'at the start: no … before');
   assert.equal(filterSnippet(long, 'project'), '…against every module of the project.', 'at the end: no … after');
   assert.equal(filterSnippet('x'.repeat(40) + 'match', 'match'), '…match', 'no word start within reach: the match itself');
+  assert.equal(
+    filterSnippet('Checks the spelling of words: ' + 'İ'.repeat(12) + ' Turkish capitals first.', 'capitals'),
+    '…words: İİİİİİİİİİİİ Turkish capitals first.',
+    "after 'İ': from the start of a word at most 30 characters before the match",
+  );
 });
 
 test('the count in the filter field: the matches while it has words, else every skill', () => {
@@ -323,6 +363,23 @@ test('the page highlights the matches in the name and the snippet, case-insensit
   assert.deepEqual(page.rows().find(([name]) => name === 'lint-checks'), ['lint-checks', 'Write a lint check for this repository.'], 'no filter: the description again, nothing highlighted');
 });
 
+test('the page highlights a match after a dotted capital İ where it is', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'skill-atlas-turkish-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, '.claude/skills/istanbul'), { recursive: true });
+  writeFileSync(
+    join(root, '.claude/skills/istanbul/SKILL.md'),
+    '---\nname: istanbul\ndescription: İİİİ Turkish capitals first, then the word target here.\n---\nbody\n',
+  );
+  const page = await openPage(t, new URLSearchParams({ repo: root, filter: 'capitals' }).toString());
+  assert.equal(page.count(), '1 of 1');
+  assert.deepEqual(page.rows(), [['istanbul', 'İİİİ Turkish [capitals] first, then the word target here.']]);
+  page.type('target');
+  assert.deepEqual(page.rows(), [['istanbul', '…capitals first, then the word [target] here.']]);
+  page.type('i');
+  assert.deepEqual(page.rows(), [['[i]stanbul', '[İİİİ] Turk[i]sh cap[i]tals f[i]rst, then the word target here.']], 'a match in part of a letter: the whole letter; touching: one highlight');
+});
+
 test('a new scan keeps the filter', async (t) => {
   const page = await openPage(t, fixtureQuery());
   page.type('CHEC');
@@ -335,6 +392,108 @@ test('a new scan keeps the filter', async (t) => {
   assert.deepEqual(page.rows()[1], ['release-[chec]klist', ''], 'highlighted after the new scan');
   assert.equal(page.selected(), 'lint-checks');
   assert.equal(page.linked(), 'CHEC');
+});
+
+test("each new scan is a link in the history: Back scans the one before, Forward the next", async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const start = page.history();
+  await page.scanLink(`${FIXTURE}/agent`);
+  assert.equal(page.history(), start + 1, 'a new entry');
+  assert.equal(page.linkedRepo(), `${FIXTURE}/agent`);
+  assert.equal(page.status(), 'agent · 1 skill');
+
+  await page.go(-1);
+  assert.equal(page.linkedRepo(), FIXTURE, 'Back: the first scan\'s link');
+  assert.equal(page.field(), FIXTURE, 'in the field too');
+  assert.equal(page.status(), 'fixture · 7 skills');
+  assert.equal(page.shown().length, 7);
+  assert.equal(page.selected(), 'aspect-generator');
+  assert.deepEqual(page.scans, [FIXTURE, `${FIXTURE}/agent`, FIXTURE], 'scanned again: nothing is stored');
+
+  await page.go(1);
+  assert.equal(page.linkedRepo(), `${FIXTURE}/agent`, 'Forward: the second scan');
+  assert.equal(page.field(), `${FIXTURE}/agent`);
+  assert.equal(page.status(), 'agent · 1 skill');
+  assert.deepEqual(page.shown(), ['lint-checks']);
+  assert.equal(page.history(), start + 1, 'Back and Forward add no entry');
+});
+
+test('the history: typing in the filter adds no entry; Back and Forward bring back each scan with its filter', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const start = page.history();
+  page.type('chec');
+  page.type('check');
+  assert.equal(page.history(), start, 'typing replaces the link');
+  await page.scanLink(`${FIXTURE}/agent`);
+  assert.equal(page.linked(), 'check', 'a new scan keeps the filter');
+  page.type('lint');
+  assert.equal(page.history(), start + 1);
+
+  await page.go(-1);
+  assert.equal(page.filter(), 'check', 'the first scan\'s filter');
+  assert.equal(page.status(), 'fixture · 2 of 7 skills');
+  assert.deepEqual(page.shown(), ['lint-checks', 'release-checklist']);
+
+  await page.go(1);
+  assert.equal(page.filter(), 'lint');
+  assert.equal(page.status(), 'agent · 1 skill');
+  assert.equal(page.count(), '1 of 1');
+});
+
+test('the history: the same link scanned again adds no entry', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const start = page.history();
+  await page.scanAgain();
+  await page.scanLink(`  ${FIXTURE}  `);
+  assert.equal(page.scans.length, 3, 'scanned again');
+  assert.equal(page.history(), start, 'no new entry');
+});
+
+test('the history: a link with spaces around ?repo=, scanned again, adds no entry and is replaced', async (t) => {
+  const page = await openPage(t, new URLSearchParams({ repo: ` ${FIXTURE} ` }).toString());
+  const start = page.history();
+  await page.scanAgain();
+  assert.equal(page.history(), start, 'no new entry');
+  assert.equal(page.linkedRepo(), FIXTURE, 'the link is replaced, trimmed');
+});
+
+test('the history: Back to the page before any scan → the empty page, only the header', async (t) => {
+  const page = await openPage(t, '');
+  assert.deepEqual(page.scans, []);
+  await page.scanLink(FIXTURE);
+  assert.equal(page.linkedRepo(), FIXTURE);
+  page.type('chec');
+
+  await page.go(-1);
+  assert.equal(page.linkedRepo(), null);
+  assert.equal(page.field(), '');
+  assert.equal(page.filter(), '');
+  assert.equal(page.status(), '');
+  assert.equal(page.resultsShown(), false, 'no skills, no filter');
+  assert.equal(page.scans.length, 1, 'no scan');
+
+  await page.go(1);
+  assert.equal(page.status(), 'fixture · 2 of 7 skills', 'Forward: the scan with its filter');
+  assert.equal(page.filter(), 'chec');
+});
+
+test("the history: Back while a scan runs → only the link's scan shows, the late answer is dropped", async (t) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const page = await openPage(t, fixtureQuery(), (repo) => (repo.endsWith('/agent') ? held : Promise.resolve()));
+  const button = page.document.getElementById('scan') as HTMLButtonElement;
+  (page.document.getElementById('repo') as HTMLInputElement).value = `${FIXTURE}/agent`;
+  button.click();
+  assert.match(page.status() ?? '', /^Scanning .*agent…$/);
+
+  await page.go(-1);
+  assert.equal(page.status(), 'fixture · 7 skills');
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(page.status(), 'fixture · 7 skills', 'the late answer is dropped');
+  assert.equal(page.shown().length, 7);
+  assert.equal(page.linkedRepo(), FIXTURE);
+  assert.equal(button.disabled, false);
 });
 
 test('a GitHub repository: its skills, each with its pinned link and its SKILL.md', async () => {
@@ -372,6 +531,35 @@ test('a local directory: every skill sorted by name, its SKILL.md as it is, and 
   }
   assert.equal(body.warnings.length, 1);
   assert.match(body.warnings[0], /^\.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
+});
+
+test('a local directory with a folder that cannot be read: its skills, and a warning under the field', async (t) => {
+  const locked = lockedFixture(t);
+  if (locked.skip) return t.skip(locked.skip);
+  const { status, body } = await scan(locked.root);
+  assert.equal(status, 200);
+  assert.equal(body.repository.id, 'locked');
+  assert.deepEqual(body.skills.map((skill) => skill.name), (await scan(FIXTURE)).body.skills.map((skill) => skill.name));
+  assert.equal(body.warnings[0], 'private: not readable; skipped');
+  assert.equal(body.warnings.length, 2);
+
+  const page = await pageAt(t, locked.root);
+  await page.scanned();
+  assert.equal(page.document.getElementById('status')!.textContent, 'locked · 7 skills');
+  assert.equal(page.document.querySelector('#warnings li')?.textContent, 'private: not readable; skipped');
+});
+
+test('a local directory with a folder that cannot be entered and a SKILL.md that cannot be read: their warnings in the answer', async (t) => {
+  const locked = lockedFixture(t, { '.claude/skills/commits': 0o644, '.github/skills/code-style/SKILL.md': 0o000 });
+  if (locked.skip) return t.skip(locked.skip);
+  const { status, body } = await scan(locked.root);
+  assert.equal(status, 200);
+  assert.deepEqual(body.skills.map((skill) => skill.name).filter((name) => name === 'commits' || name === 'code-style'), []);
+  assert.deepEqual(body.warnings.filter((warning) => /not readable|not found/.test(warning)).sort(), [
+    '.claude/skills/commits: not readable; skipped',
+    '.github/skills/code-style/SKILL.md: not readable; skipped',
+    'private: not readable; skipped',
+  ]);
 });
 
 test('an organization: its repositories with skills, grouped, each skill with its link and SKILL.md, and warnings', async () => {
@@ -521,11 +709,88 @@ test("each skill's day: next to it in the list, `updated <day>` in the selected 
     ['dated', ['2026-09-15', '2026-09-15T23:30:00Z', 'Last updated 2026-09-15 23:30:00 UTC']],
     ['undated', null],
   ]);
+  // A stacked row: the name and its day's chip on one line, then the description under them.
+  const layout = [...document.querySelectorAll('#skills li[role="option"]')].map((li) =>
+    [...li.children].map((child) => (child.matches('.head') ? [...child.children].map((part) => part.className) : child.className)),
+  );
+  assert.deepEqual(layout, [
+    [['name', 'updated'], 'description', 'snippet'],
+    [['name'], 'description', 'snippet'],
+  ]);
   // The first one is selected: its day under its link.
   assert.equal(document.querySelector('#skill .updated')!.textContent, 'updated 2026-09-15');
   (document.querySelectorAll('#skills li[role="option"]')[1] as HTMLElement).click();
   assert.equal(document.querySelector('#skill h2')!.textContent, 'undated');
   assert.equal(document.querySelector('#skill .updated'), null);
+});
+
+test('a skill is a stacked row: its name in bold, its day a chip beside it, its description under them, a line between skills', async () => {
+  const page = await (await fetch(url)).text();
+  assert.match(page, /#skills \.head \{[^}]*display: flex/, 'the name and the day on one line');
+  assert.match(page, /#skills \.name \{[^}]*font: 700 /, 'the name in bold');
+  assert.match(page, /#skills \.head \.updated \{[^}]*border-radius: 999px/, 'the day: a chip');
+  assert.match(page, /#skills \.description, #skills \.snippet \{[^}]*margin-top/, 'the description under them');
+  assert.doesNotMatch(page, /grid-column: 2/, 'not in a column beside the name');
+  assert.match(page, /#skills li\.line::before \{[^}]*border-top: 1px solid var\(--line\)/, 'a thin line between two skills');
+});
+
+/** The shown skills in the list, by name, each with ` |` when a line is drawn above it; a heading as `# <repository>`. */
+function lines(document: Document): string[] {
+  return [...document.querySelectorAll('#skills li:not([hidden])')].map((li) =>
+    li.matches('.group') ? '# ' + li.textContent!.split(' · ')[0] : li.querySelector('.name')!.textContent + (li.classList.contains('line') ? ' |' : ''),
+  );
+}
+
+/** In the page's list: types the filter, clicks a skill, or moves the mouse onto or off it. */
+function acts(document: Document) {
+  const window = document.defaultView!;
+  const item = (name: string) => [...document.querySelectorAll('#skills li[role="option"]')].find((li) => li.querySelector('.name')!.textContent === name)!;
+  return {
+    type(text: string) {
+      (document.getElementById('filter') as HTMLInputElement).value = text;
+      document.getElementById('filter')!.dispatchEvent(new window.Event('input'));
+    },
+    click: (name: string) => (item(name) as HTMLElement).click(),
+    enter: (name: string) => item(name).dispatchEvent(new window.MouseEvent('mouseenter')),
+    leave: (name: string) => item(name).dispatchEvent(new window.MouseEvent('mouseleave')),
+  };
+}
+
+test('the line between two skills: none above the first one shown, with a filter too, nor next to the hovered or selected one', async (t) => {
+  const page = await pageAt(t, FIXTURE);
+  await page.scanned();
+  const { document } = page;
+  const act = acts(document);
+  // aspect-generator selected: no line above it (the first) nor under it.
+  assert.deepEqual(lines(document), ['aspect-generator', 'code-style', 'commits |', 'lint-checks |', 'release-checklist |', 'reviews |', 'run-tests |']);
+  // Hovered: no line above it nor under it; back when the mouse leaves.
+  act.enter('lint-checks');
+  assert.deepEqual(lines(document), ['aspect-generator', 'code-style', 'commits |', 'lint-checks', 'release-checklist', 'reviews |', 'run-tests |']);
+  act.leave('lint-checks');
+  assert.deepEqual(lines(document), ['aspect-generator', 'code-style', 'commits |', 'lint-checks |', 'release-checklist |', 'reviews |', 'run-tests |']);
+  // The filter hides aspect-generator: none above code-style, now the first shown and selected.
+  act.type('use before');
+  assert.deepEqual(lines(document), ['code-style', 'reviews', 'run-tests |']);
+  act.click('run-tests');
+  assert.deepEqual(lines(document), ['code-style', 'reviews |', 'run-tests']);
+  act.enter('code-style');
+  assert.deepEqual(lines(document), ['code-style', 'reviews', 'run-tests']);
+});
+
+test("the line between two skills in an organization: none under a repository's heading, with a filter too", async (t) => {
+  const answer = organizationAnswer('octo', 2, [['one', 3], ['two', 3]]);
+  const names = [['alpha', 'beta-x', 'gamma-x'], ['delta', 'eps-x', 'zeta-x']];
+  answer.repositories.forEach((group, i) => group.skills.forEach((skill, j) => (skill.name = names[i]![j]!)));
+  const page = await pageAt(t, 'github.com/octo', async () => Response.json(answer));
+  await page.scanned();
+  const { document } = page;
+  const act = acts(document);
+  assert.deepEqual(lines(document), ['# octo/one', 'alpha', 'beta-x', 'gamma-x |', '# octo/two', 'delta', 'eps-x |', 'zeta-x |']);
+  // The filter hides each repository's first skill: none above the first match under each heading.
+  act.type('x');
+  assert.deepEqual(lines(document), ['# octo/one', 'beta-x', 'gamma-x', '# octo/two', 'eps-x', 'zeta-x |']);
+  act.click('zeta-x');
+  assert.deepEqual(lines(document), ['# octo/one', 'beta-x', 'gamma-x |', '# octo/two', 'eps-x', 'zeta-x']);
 });
 
 test('the API: a skill whose day is unknown (a directory outside git) has `updated: null`', async (t) => {
@@ -841,6 +1106,104 @@ test('a sentence cut at two lines folds: the skills are on screen when it is mea
   const item = page.document.querySelector('#skills li[role="option"]')!;
   assert.ok(item.querySelector('details.description'), 'one sentence, cut at two lines: a fold');
   assert.equal(item.querySelector('details.description .whole')!.textContent, sentence);
+});
+
+/**
+ * jsdom has no layout: a description's clamp, longer than 40 characters, is three lines high in a window
+ * narrower than 600 px, two lines in a wider one; nothing while hidden. `resize` sets the width and tells the page.
+ */
+async function pageAtWidth(t: TestContext, skills: [name: string, description: string][]) {
+  let width = 1280;
+  const layout = (window: JSDOM['window']) => {
+    const offScreen = (node: Element) => !!node.closest('[hidden]');
+    const lines = (node: Element, high: number) => (offScreen(node) ? 0 : node.matches('.clamp') && node.textContent!.length > 40 && width < 600 ? high : 40);
+    Object.defineProperty(window.HTMLElement.prototype, 'scrollHeight', { get(this: Element) { return lines(this, 60); } });
+    Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { get(this: Element) { return lines(this, 40); } });
+  };
+  const answer = organizationAnswer('octo', 1, [['one', skills.length]]);
+  answer.repositories[0].skills.forEach((skill, i) => Object.assign(skill, { name: skills[i][0], description: skills[i][1], summary: skills[i][1] }));
+  const page = await pageAt(t, 'github.com/octo', async () => Response.json(answer), layout);
+  await page.scanned();
+  const { document } = page;
+  const window = document.defaultView!;
+  return {
+    doc: document,
+    resize(to: number) {
+      width = to;
+      window.dispatchEvent(new window.Event('resize'));
+    },
+    filter(words: string) {
+      const field = document.getElementById('filter') as HTMLInputElement;
+      field.value = words;
+      field.dispatchEvent(new window.Event('input'));
+    },
+    /** A skill's description: `folded`, `open` or `plain`. */
+    description(name: string) {
+      const item = [...document.querySelectorAll('#skills li[role="option"]')].find((li) => li.querySelector('.name')!.textContent === name)!;
+      const fold = item.querySelector('details.description') as HTMLDetailsElement | null;
+      return fold ? (fold.open ? 'open' : 'folded') : 'plain';
+    },
+    unfold(name: string) {
+      const item = [...document.querySelectorAll('#skills li[role="option"]')].find((li) => li.querySelector('.name')!.textContent === name)!;
+      (item.querySelector('details.description') as HTMLDetailsElement).open = true;
+    },
+  };
+}
+
+const LONG = 'Checks that every public function in the module has a short and useful doc comment';
+
+test('a sentence that fitted is cut at two lines once the window is narrower: it folds', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  assert.equal(page.description('doc-comments'), 'plain', 'wide: two lines, no fold');
+  page.resize(420);
+  assert.equal(page.description('doc-comments'), 'folded', 'narrow (or zoomed in): cut, so a fold');
+});
+
+test('a folded sentence that fits again once the window is wider: the fold goes', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  page.resize(420);
+  assert.equal(page.description('doc-comments'), 'folded');
+  page.resize(1280);
+  assert.equal(page.description('doc-comments'), 'plain', 'wide again: nothing more to show');
+});
+
+test('an unfolded description stays open on a resize', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  page.resize(420);
+  page.unfold('doc-comments');
+  page.resize(1280);
+  assert.equal(page.description('doc-comments'), 'open');
+  page.resize(400);
+  assert.equal(page.description('doc-comments'), 'open');
+});
+
+test('a resize keeps the keyboard focus on a folded summary', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  page.resize(420);
+  const fold = page.doc.querySelector('details.description')!;
+  const summary = fold.querySelector('summary') as HTMLElement;
+  summary.focus();
+  page.resize(400);
+  assert.equal(page.doc.activeElement, summary, 'still the same summary, still focused');
+  assert.equal(page.doc.querySelector('details.description'), fold, 'the fold is kept, not rebuilt');
+  assert.equal(fold.classList.contains('measuring'), false);
+});
+
+test('a row hidden by the filter while the window narrowed folds once the filter shows it again', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG], ['other', 'Short.']]);
+  page.filter('other');
+  page.resize(420);
+  page.filter('');
+  assert.equal(page.description('doc-comments'), 'folded');
+  assert.equal(page.description('other'), 'plain', 'a short sentence: never a fold');
+});
+
+test('a sentence shown as a snippet while the window narrowed folds once the filter is cleared', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  page.filter('module');
+  page.resize(420);
+  page.filter('');
+  assert.equal(page.description('doc-comments'), 'folded');
 });
 
 test('no skills: the SKILL.md view says how to read one', async (t) => {

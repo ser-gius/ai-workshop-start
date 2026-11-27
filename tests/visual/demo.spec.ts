@@ -57,7 +57,7 @@ test('fixture: the local directory, then the filter `use before`', async ({ page
 test('scan: a repository, picking a skill, unfolding a description', async ({ page }) => {
   await scan(page, DEMO_REPOSITORY);
   await expect(skills(page)).toHaveCount(7);
-  // Each skill's day under its name, and the selected one's under its link.
+  // Each skill's day a chip beside its name, and the selected one's under its link.
   await expect(skills(page).locator('.updated')).toHaveCount(7);
   await expect(skills(page).first().locator('.updated')).toHaveText('2026-04-02');
   await expect(page.locator('#skill .updated')).toHaveText('updated 2026-04-02');
@@ -66,7 +66,7 @@ test('scan: a repository, picking a skill, unfolding a description', async ({ pa
   await expect(page.locator('#topics .topic').first().locator('.chips > *')).toHaveText(['build-bump-gradle-version', 'build-tools-add-test-federation-annotations-to-integration-tests', 'build-tools-bump-gradle-api', '+1']);
   await expect(page).toHaveScreenshot('scan.png');
 
-  await skills(page).nth(2).click();
+  await skills(page).nth(2).locator('.name').click(); // the name: a click on a fold opens it, and does not select
   await expect(skills(page).nth(2)).toHaveAttribute('aria-selected', 'true');
   await expect(page).toHaveScreenshot('scan-picked.png');
 
@@ -120,4 +120,45 @@ test('link: `?repo=…&filter=gradle` opens the filtered view at once', async ({
   await expect(page.locator('#filter')).toHaveValue('gradle');
   await expect(page.locator('#count')).toHaveText(/^\d+ of 7$/);
   await expect(page).toHaveScreenshot('link.png');
+});
+
+test.describe('narrow: a 375 px wide screen', () => {
+  const phone = { width: 375, height: 667 };
+  test.use({ viewport: phone }); // the video stays 1280×800, the phone in its corner
+
+  /**
+   * The header causes no sideways scroll, and every given element ends inside the header card.
+   * Only the fixture is scanned: its skill names are short, as the list's long names still widen the page (spec/web.md).
+   */
+  async function fits(page: Page, ...selectors: string[]) {
+    const { width, scrollWidth, card, rights } = await page.evaluate((selectors) => {
+      const right = (e: Element) => e.getBoundingClientRect().right;
+      const header = document.querySelector('header.card')!;
+      // Inside its padding: the card's right edge less its padding and border.
+      const inner = right(header) - parseFloat(getComputedStyle(header).paddingRight) - parseFloat(getComputedStyle(header).borderRightWidth);
+      return {
+        width: innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        card: inner,
+        rights: Object.fromEntries(selectors.map((s) => [s, right(document.querySelector(s)!)])),
+      };
+    }, selectors);
+    expect(scrollWidth, 'the page scrolls sideways').toBe(width);
+    for (const [selector, right] of Object.entries(rights)) expect(right, `${selector} sticks out of the header`).toBeLessThanOrEqual(card + 0.5);
+  }
+
+  test('the header fits: Scan inside the card, before and after a scan; a long name wraps', async ({ page }) => {
+    await fits(page, '#form', '#scan');
+    await expect(page).toHaveScreenshot('narrow.png');
+
+    await scan(page, FIXTURE_COPY);
+    await expect(page.locator('#count')).toHaveText('7 skills');
+    await fits(page, '#form', '#scan', '#status');
+
+    // A long name of what was scanned (none in the recording): it wraps inside the card.
+    const one = await page.locator('#status').evaluate((e) => e.getBoundingClientRect().height);
+    await page.locator('#status').evaluate((e) => (e.textContent = 'JetBrains/intellij-community-plugins · 128 skills'));
+    await fits(page, '#form', '#scan', '#status');
+    expect(await page.locator('#status').evaluate((e) => e.getBoundingClientRect().height), 'on more than one line').toBeGreaterThan(one);
+  });
 });
