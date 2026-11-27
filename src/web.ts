@@ -312,6 +312,8 @@ const PAGE = `<!doctype html>
   #skills li.line::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; border-top: 1px solid var(--line); }
   #skills li:hover { background: #eeece6; }
   #skills li[aria-selected="true"] { background: var(--tile); box-shadow: inset 3px 0 0 var(--accent); }
+  #skills li[role="option"]:focus { outline: none; }
+  #skills li[role="option"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   #skills .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
   #skills .name { font: 700 15px/1.5 var(--mono); min-width: 0; overflow-wrap: anywhere; }
   #skills .description, #skills .snippet { margin-top: 2px; color: var(--muted); font-size: 14px; min-width: 0; }
@@ -476,12 +478,15 @@ function foldIfClamped() {
       shown.replaceWith(plain);
     } else shown.replaceWith(fold(short, skill.description));
   });
+  // A new fold is a Tab stop only in the focused or selected skill.
+  if (rows.length) foldStop(document.activeElement.closest('#skills li[role="option"]') || (selected && selected.item));
 }
 
 function fold(short, text) {
   const fold = el('details', 'description');
   const summary = el('summary');
   summary.title = 'Show the whole description';
+  summary.tabIndex = -1; // a Tab stop only in the focused or selected skill: foldStop
   summary.append(short);
   const whole = el('div', 'whole', text);
   whole.title = 'Fold';
@@ -495,6 +500,7 @@ function fold(short, text) {
 function nothingSelected() {
   selected = null;
   for (const item of $('skills').querySelectorAll('li[role="option"]')) item.setAttribute('aria-selected', 'false');
+  tabStop(null);
   $('skill').replaceChildren(el('p', 'placeholder', 'Select a skill to read its SKILL.md.'));
   drawLines();
 }
@@ -516,6 +522,7 @@ function drawLines() {
 function show(skill, item) {
   selected = { skill, item };
   for (const other of $('skills').querySelectorAll('li[role="option"]')) other.setAttribute('aria-selected', String(other === item));
+  tabStop(item);
   drawLines();
   const view = $('skill');
   const title = el('div', 'card-title');
@@ -545,11 +552,48 @@ function count(n, one, many) {
   return n + ' ' + (n === 1 ? one : many || one + 's');
 }
 
-// Each skill, its name and description; a click selects it.
+// The list is one Tab stop, as a listbox: the selected skill; the others are reached with the arrow keys.
+function tabStop(item) {
+  for (const other of $('skills').querySelectorAll('li[role="option"]')) other.tabIndex = other === item ? 0 : -1;
+  foldStop(item);
+}
+
+// Only the fold of the focused skill (else the selected one) is a Tab stop: Tab does not walk every fold.
+function foldStop(item) {
+  for (const summary of $('skills').querySelectorAll('details.description summary')) {
+    summary.tabIndex = item && item.contains(summary) ? 0 : -1;
+  }
+}
+$('skills').addEventListener('focusin', (event) => foldStop(event.target.closest('li[role="option"]')));
+$('skills').addEventListener('focusout', (event) => {
+  if (!$('skills').contains(event.relatedTarget)) foldStop(selected && selected.item);
+});
+
+// The keys of a listbox: ↓ ↑ Home End move the focus among the skills shown, Enter or Space selects
+// the focused one. Keys on a fold inside a skill are the fold's, but the arrows still move.
+function onListKey(event) {
+  const item = event.target.closest('li[role="option"]');
+  if (!item) return;
+  const shown = [...$('skills').querySelectorAll('li[role="option"]:not([hidden])')];
+  const at = shown.indexOf(item);
+  const next = { ArrowDown: shown[at + 1], ArrowUp: shown[at - 1], Home: shown[0], End: shown[shown.length - 1] };
+  if (event.key in next) {
+    event.preventDefault();
+    (next[event.key] || item).focus();
+  } else if ((event.key === 'Enter' || event.key === ' ') && event.target === item) {
+    event.preventDefault();
+    const entry = scanned.entries.find((candidate) => candidate.item === item);
+    show(entry.skill, item);
+  }
+}
+$('skills').addEventListener('keydown', onListKey);
+
+// Each skill, its name and description; a click selects it, and so do the keys above.
 function list(skills, group) {
   for (const skill of skills) {
     const item = el('li');
     item.setAttribute('role', 'option');
+    item.tabIndex = -1;
     // A stacked row: the name and its day on one line, the description under them.
     const head = el('div', 'head');
     head.append(el('div', 'name', skill.name));

@@ -65,6 +65,25 @@ const CASES = {
       await h.clearFilter();
     },
   },
+  keyboard: {
+    about: 'Offline: the keyboard in the fixture\'s skills: Tab in, the arrow keys, Enter selects, Enter on a fold',
+    async run(p, h) {
+      await h.scan(join(ROOT, 'fixture'));
+      await h.skills();
+      await h.pause(1000);
+      await p.focus('#filter');
+      await p.keyboard.press('Tab');
+      await h.pause(1000);
+      for (let i = 0; i < 4; i++) { await p.keyboard.press('ArrowDown'); await h.pause(600); }
+      await p.keyboard.press('Enter');
+      await h.pause(1500);
+      await p.keyboard.press('ArrowDown');
+      await p.keyboard.press('Tab');
+      await h.pause(600);
+      await p.keyboard.press('Enter');
+      await h.pause(2000);
+    },
+  },
   link: {
     about: 'A link of its own: `?repo=…&filter=…` opens the filtered view at once',
     async run(p, h) {

@@ -46,7 +46,7 @@ jobs:
           gh run download "$RUN" -n visual-tests -D "$RUNNER_TEMP/visual"
           mkdir -p "$RUNNER_TEMP/demo"
           # test-results/demo-<case>-<title…>/video.webm, in the spec's order; the fonts check is no case.
-          for case in fixture scan filter org link; do
+          for case in fixture scan filter org keyboard link; do
             v=$(ls "$RUNNER_TEMP"/visual/test-results/demo-"$case"-*/video.webm 2>/dev/null | head -1)
             [ -n "$v" ] || { echo "No video for $case"; continue; }
             ffmpeg -v error -y -i "$v" -c:v libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart "$RUNNER_TEMP/demo/$case.mp4"
