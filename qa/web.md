@@ -72,7 +72,7 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
   ``Start with the area, then say what changed: `editor: keep the caret after undo`.``
 - Step 2: `also in .claude/skills/reviews/SKILL.md` under its link
 
-### WEB-32 · Selecting a skill with the keyboard
+### WEB-33 · Selecting a skill with the keyboard
 **Steps**
 1. Click in the filter field, then press Tab
 2. Press ↓ four times
@@ -182,7 +182,7 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
 - `serve [--port <number>]` is listed. The browser terminal's `help`, which must *not* list it, has no page
   to open yet: covered by `npm test` only
 
-### WEB-30 · When each skill last changed
+### WEB-34 · When each skill last changed
 *Step 1 needs `GITHUB_TOKEN`: without it, a GitHub skill has no day.*
 
 **Steps**

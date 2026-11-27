@@ -9,8 +9,7 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - A **narrow screen** (a phone, 375 px wide): the header fits the window, the header causes no sideways
   scroll; the field shrinks, *Scan* inside the card, and a long name of what was scanned wraps inside the card
   (`JetBrains/intellij-community-plugins · 128 skills`, on two lines). Wider than 860 px it stays on one line.
-  Still open: a long skill name in the list (mono, on one line) widens the page
-  (`JetBrains/kotlin` at 375 px: 665 px wide); PR #23 restyles that list
+  A long skill name in the list wraps inside its card (see *Long texts*)
 - The skills and their **filter** show only *once a scan has answered*: before a scan, while it runs, and on
   a failure, only the header (and the organization's card while it scans)
 - No skill selected (no match, or no skills) → the SKILL.md view says `Select a skill to read its SKILL.md.`
@@ -64,6 +63,17 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
     ignoring case: the name without the owner, in monospace, linked, and `N skills`; then `+<n> more`
     when there are more. With 3 or fewer: `<n> with skills`, no `+<n> more`; with none: `No repository with skills`
   - Hidden for a repository or a local directory, and on a failure (its message shows instead)
+## Long texts
+Every text stays **inside its card**, even a long one with no spaces; the page never scrolls sideways
+- A skill's **name**, on its own line in its stacked row, wraps (at a `-`, else anywhere) when longer than the row;
+  its description stays under it
+  `a-very-long-skill-name-without-any-spaces-that-goes-on-and-on-and-on-forever-and-ever` → on a few lines, its description under it
+- **Wrapped**: `No skills match "<filter>"`, a word in a description, a repository's heading, a warning,
+  `also in <paths>`, the selected skill's name and link, an error in the header
+- **Cut with `…`**, on one line, the whole text on hover: what was scanned in the header
+  (`Scanning /tmp/deep/deep/deep/…`, `JetBrains/kotlin · 6 skills`), beside the field, in at most 40%
+  of the row, so the header stays one row (on a narrow screen it wraps instead, see *Page*); and an organization's
+  name and top repositories in its card
 ## Topics
 Above the skill list, a **card per topic** ([analysis](analysis.md#topics)), in the topics' order:
 ```

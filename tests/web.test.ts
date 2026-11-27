@@ -1229,6 +1229,35 @@ test("an organization: its card shows while it scans, the filter and the skills 
   assert.equal(results(), false, 'answered: the filter and the skills');
 });
 
+test('a long text stays inside its card: wrapped, or cut with … and whole on hover (in a browser: tests/visual/long-text.spec.ts)', async (t) => {
+  const page = await (await fetch(url)).text();
+  assert.match(page, /#skills \.name \{[^}]*overflow-wrap: anywhere/, 'a long name wraps');
+  assert.doesNotMatch(page, /#skills \.name \{[^}]*nowrap/);
+  assert.match(page, /#no-match \{[^}]*overflow-wrap: anywhere/, '`No skills match` wraps');
+  assert.match(page, /\.header-row #status \{[^}]*text-overflow: ellipsis/, 'what was scanned: cut with …');
+  assert.match(page, /\.header-row #status \{[^}]*flex: 0 1 auto;[^}]*max-width: 40%/, 'what was scanned: shrinks beside the field, never on a row of its own');
+  assert.match(page, /\.header-row #status\.error \{[^}]*overflow-wrap: anywhere/, 'an error wraps');
+
+  const deep = '/tmp/long/' + 'deep/'.repeat(60);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const scanning = await pageAt(t, deep, async () => {
+    await held;
+    return Response.json({ error: `No such directory: ${deep}` }, { status: 400 });
+  });
+  const status = scanning.document.getElementById('status')!;
+  assert.equal(status.textContent, `Scanning ${deep}…`);
+  assert.equal(status.title, `Scanning ${deep}…`, 'the whole link on hover');
+  release();
+  await scanning.scanned();
+  assert.equal(status.className, 'error');
+  assert.equal(status.title, `No such directory: ${deep}`, 'the title follows the text');
+
+  const scanned = await pageAt(t, FIXTURE);
+  await scanned.scanned();
+  assert.equal(scanned.document.getElementById('status')!.title, 'fixture · 7 skills');
+});
+
 /** The keyboard in a page's skill list: keys pressed where the focus is, as a user does. */
 function keyboard(document: Document) {
   const window = document.defaultView!;

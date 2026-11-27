@@ -219,14 +219,17 @@ export const CASES = {
       blocks.filter((b) => !/^  updated /.test(b.at(-1))).map((b) => b[0]).join(', ') || `${blocks.length} blocks`);
     await t.step(2); const f = await t.sh('./skill-atlas scan fixture 2>/dev/null');
     const fixture = f.stdout.trimEnd().split('\n').slice(1).reduce((all, l) => (l.startsWith(' ') ? all.at(-1)?.push(l) : all.push([l]), all), []);
+    // A shallow clone (CI's checkout): a folder whose latest commit is where history stops has no date (spec/analysis.md)
+    const cut = (await t.sh('cat "$(git rev-parse --git-path shallow)" 2>/dev/null', { show: false })).stdout.split('\n').filter(Boolean);
     const days = [];
     for (const b of fixture) {
       const folder = /\/fixture\/(.*)\/SKILL\.md$/.exec(b[1] ?? '')?.[1];
-      const day = (await t.sh(`TZ=UTC git log -1 --date=format-local:%Y-%m-%d --format=%cd -- fixture/${folder}`, { show: false })).stdout.trim();
-      days.push({ name: nameOf(b[0]), last: b.at(-1), expected: `  updated ${day}` });
+      const [hash, day] = (await t.sh(`TZ=UTC git log -1 --date=format-local:%Y-%m-%d --format='%H %cd' -- fixture/${folder}`, { show: false })).stdout.trim().split(' ');
+      days.push({ name: nameOf(b[0]), last: b.at(-1), expected: cut.includes(hash) ? null : `  updated ${day}` });
     }
-    await t.see('Each skill\'s last line is `updated <YYYY-MM-DD>`, the day of the latest commit to its folder (UTC)',
-      days.length === 7 && days.every((d) => d.last === d.expected), days.filter((d) => d.last !== d.expected).map((d) => `${d.name}: ${d.last.trim()} vs ${d.expected.trim()}`).join('; ') || `${days.length} skills`);
+    const dated = (d) => (d.expected === null ? !/^  updated /.test(d.last) : d.last === d.expected);
+    await t.see('Each skill\'s last line is `updated <YYYY-MM-DD>`, the day of the latest commit to its folder (UTC); none where a shallow clone stops',
+      days.length === 7 && days.every(dated), days.filter((d) => !dated(d)).map((d) => `${d.name}: ${d.last.trim()} vs ${d.expected?.trim() ?? 'no updated line'}`).join('; ') || `${days.length} skills`);
     await t.step(3); const p = await t.sh('rm -rf /tmp/qa-plain && cp -r fixture /tmp/qa-plain && ./skill-atlas scan /tmp/qa-plain');
     await t.see('Outside git: no `updated` line at all', () => ({ ok: p.code === 0 && p.lines.length > 1 && !/updated/.test(p.stdout), detail: p.stdout.slice(0, 300) }));
     await t.see('And no warning about it', () => ({ ok: p.stderr.trim().split('\n').filter(Boolean).every((l) => /release-checklist.*malformed front matter/.test(l)), detail: p.stderr.slice(0, 300) }));
@@ -406,7 +409,7 @@ export const CASES = {
     await t.step(2); await t.click('reviews');
     await t.see('`also in .claude/skills/reviews/SKILL.md`', async () => same(await t.text('#skill .copies'), 'also in .claude/skills/reviews/SKILL.md'));
   },
-  async 'WEB-32'(t) {
+  async 'WEB-33'(t) {
     const s = await t.serve(); await t.open(s.url); await t.scan(t.fixture);
     const focused = () => t.p.evaluate(() => document.activeElement.closest('li[role="option"]')?.querySelector('.name').textContent ?? document.activeElement.tagName);
     const ring = () => t.p.evaluate(() => { const a = document.activeElement; return a.matches(':focus-visible') && getComputedStyle(a).outlineStyle !== 'none'; });
@@ -418,10 +421,14 @@ export const CASES = {
     await t.see('`release-checklist` selected, its SKILL.md shows', async () => ({ ok: (await t.selected()) === 'release-checklist' && (await t.text('#skill pre.skill-md')).includes('release-checklist') }));
     await t.step(4);
     const top = () => t.p.evaluate(() => scrollY);
-    const before = await top();
     await t.p.keyboard.press('End'); await t.pause(300);
     const end = await focused();
-    await t.p.keyboard.press('ArrowUp'); await t.pause(300); await t.p.keyboard.press(' '); await t.pause(400);
+    // End brings the last skill into view, as focusing it must: at 800 px that scrolls to the bottom, where
+    // Space's own default (a page down) would show nothing. Back to the top, so a scroll by Space is seen.
+    await t.p.keyboard.press('ArrowUp'); await t.pause(300);
+    await t.p.evaluate(() => scrollTo(0, 0)); await t.pause(200);
+    const before = await top();
+    await t.p.keyboard.press(' '); await t.pause(400);
     await t.see('End → `run-tests`, ↑ → `reviews`; Space selects `reviews`; no scroll', async () => ({ ok: end === 'run-tests' && (await focused()) === 'reviews' && (await t.selected()) === 'reviews' && (await top()) === before, detail: `${end}, ${await focused()}, selected ${await t.selected()}, scroll ${before} → ${await top()}` }));
     await t.step(5); await t.p.keyboard.press('Tab'); await t.p.keyboard.press('Enter'); await t.pause(600);
     await t.see("`reviews`' fold unfolds; `reviews` stays selected", async () => ({ ok: (await t.item('reviews').locator('details.description').evaluate((d) => d.open)) && (await t.selected()) === 'reviews', detail: await t.selected() }));
@@ -546,7 +553,7 @@ export const CASES = {
     await t.see('`serve [--port <number>]` is listed', () => matches(r.stdout, /^  serve \[--port <number>\] +\S/m));
     t.note('the browser terminal half is covered by npm test only, as the script says');
   },
-  async 'WEB-30'(t) {
+  async 'WEB-34'(t) {
     t.needToken();
     const s = await t.serve(); await t.open(s.url);
     await t.step(1); await t.scan('https://github.com/JetBrains/koog');
