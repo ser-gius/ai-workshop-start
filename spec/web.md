@@ -6,6 +6,11 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 ## Page
 - A **field** for a repository link: a GitHub URL, a GitHub organization URL, or a local directory
 - The **header** on one row: `Skill Atlas`, the field and its *Scan* button, then what was scanned (`JetBrains/kotlin · 6 skills`)
+- A **narrow screen** (a phone, 375 px wide): the header fits the window, the header causes no sideways
+  scroll; the field shrinks, *Scan* inside the card, and a long name of what was scanned wraps inside the card
+  (`JetBrains/intellij-community-plugins · 128 skills`, on two lines). Wider than 860 px it stays on one line.
+  Still open: a long skill name in the list (mono, on one line) widens the page
+  (`JetBrains/kotlin` at 375 px: 665 px wide); PR #23 restyles that list
 - The skills and their **filter** show only *once a scan has answered*: before a scan, while it runs, and on
   a failure, only the header (and the organization's card while it scans)
 - No skill selected (no match, or no skills) → the SKILL.md view says `Select a skill to read its SKILL.md.`
@@ -32,6 +37,12 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
   - Without `GITHUB_TOKEN`: none, and a hint to set it; a GitHub failure → its *clear message*, the page still works
 - Warnings under the field; an unreachable repository → its *clear message*, no skills
 - `?repo=<link>` scans at once, so a scan has a link of its own
+- The **history**: each new scan's link is an entry of its own, like any link opened; *Back* scans the
+  link before, with its filter, *Forward* the next one (afresh: nothing is stored)
+  - The same link scanned again, or typing in the filter → no new entry: the link is replaced
+    (`?repo=` with spaces around it is the same link: ` <link> ` → replaced by `<link>`)
+  - Back to the page before any scan (no `?repo=`) → the empty page: only the header, the field empty
+  - Back while a scan runs → that link's scan; the late answer is dropped
 - A SKILL.md is shown as **text**, never as HTML
 - An **organization**: its name, skill count and `<n> of <m> repositories`, then the skills *grouped by
   repository*: a heading per repository (`owner/name · N skills`, linked), its skills under it, as above

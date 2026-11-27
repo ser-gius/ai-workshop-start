@@ -222,7 +222,8 @@ const PAGE = `<!doctype html>
   /* The header on one row: the name, the field, and what was scanned. */
   .header-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
   .header-row h1 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
-  .header-row #form { flex: 1 1 360px; }
+  /* min-width: 0 lets the field shrink below its content on a narrow screen, Scan inside the card. */
+  .header-row #form { flex: 1 1 360px; min-width: 0; }
   .header-row #status { margin-top: 0; font-family: var(--mono); white-space: nowrap; }
   .header-row #status.error { font-family: var(--sans); white-space: normal; }
   /* The skills and their filter: only once a scan has answered. */
@@ -235,7 +236,8 @@ const PAGE = `<!doctype html>
   #warnings { margin: 6px 0 0; padding-left: 20px; color: var(--warn); font-size: 13px; }
   #warnings:empty { display: none; }
   main { display: grid; grid-template-columns: minmax(320px, 560px) minmax(0, 1fr); gap: 24px; align-items: start; }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  /* A narrow screen: the list above the SKILL.md, and what was scanned wraps inside the header. */
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } .header-row #status { white-space: normal; overflow-wrap: anywhere; } }
   #no-match { margin: 12px 4px 2px; color: var(--muted); }
   #no-match:empty { display: none; }
   #skills { list-style: none; margin: 8px 0 0; padding: 0; }
@@ -566,17 +568,41 @@ function applyFilter() {
 }
 
 // The link of this view: ?repo= for the scan, ?filter= for the filter field while it has words.
+// A new scan is a new entry in the history, like any link opened; the same link again, or typing
+// in the filter, replaces the entry. The link's ?repo= is compared trimmed, as the field is scanned.
 function updateLink(repo) {
   const params = new URLSearchParams(location.search);
+  const isNewScan = repo !== undefined && repo !== params.get('repo')?.trim();
   if (repo !== undefined) params.set('repo', repo);
   const filter = $('filter').value;
   if (filter.trim()) params.set('filter', filter.trim());
   else params.delete('filter');
   const query = params.toString();
-  history.replaceState(null, '', query ? '?' + query : location.pathname);
+  history[isNewScan ? 'pushState' : 'replaceState'](null, '', query ? '?' + query : location.pathname);
+}
+
+// Each scan is numbered: an answer that comes after a newer scan (Back while scanning) is dropped.
+let scans = 0;
+
+// The page before any scan: only the header.
+function empty() {
+  scans++;
+  scanned = null;
+  selected = null;
+  $('organization').hidden = true;
+  $('scan').disabled = false;
+  $('status').className = '';
+  $('status').textContent = '';
+  $('warnings').replaceChildren();
+  $('skills').replaceChildren();
+  $('skill').replaceChildren();
+  $('no-match').textContent = '';
+  $('count').textContent = '';
+  $('results').hidden = true;
 }
 
 async function scan(repo) {
+  const current = ++scans;
   scanned = null;
   selected = null;
   $('no-match').textContent = '';
@@ -594,6 +620,7 @@ async function scan(repo) {
   try {
     const response = await fetch('/api/scan?repo=' + encodeURIComponent(repo));
     const answer = await response.json();
+    if (current !== scans) return;
     if (!response.ok) throw new Error(answer.error);
     // Shown before the skills are listed: a description is measured, to fold, only on screen.
     $('results').hidden = false;
@@ -623,11 +650,12 @@ async function scan(repo) {
     }
     applyFilter();
   } catch (error) {
+    if (current !== scans) return;
     $('organization').hidden = true;
     $('status').className = 'error';
     $('status').textContent = error.message;
   } finally {
-    $('scan').disabled = false;
+    if (current === scans) $('scan').disabled = false;
   }
 }
 
@@ -661,9 +689,18 @@ async function suggest() {
 }
 suggest();
 
-$('filter').value = new URLSearchParams(location.search).get('filter') || '';
-const initial = new URLSearchParams(location.search).get('repo');
-if (initial) { $('repo').value = initial; scan(initial); }
+// The view of this link: its filter, and its scan (or the empty page without ?repo=).
+function openLink() {
+  const params = new URLSearchParams(location.search);
+  $('filter').value = params.get('filter') || '';
+  const repo = params.get('repo');
+  $('repo').value = repo || '';
+  if (repo) scan(repo);
+  else empty();
+}
+// Back and Forward: the link of that entry, scanned afresh.
+window.addEventListener('popstate', openLink);
+openLink();
 </script>
 </body>
 </html>

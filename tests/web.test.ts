@@ -46,7 +46,8 @@ test('the page has a field for a repository link, a skill list and a SKILL.md vi
   assert.match(page, /<input id="repo"[^>]*aria-label="Repository link"/);
   assert.match(page, /<ul id="skills"/);
   assert.match(page, /el\('pre', 'skill-md', skill\.text\)/);
-  assert.match(page, /URLSearchParams\(location\.search\)\.get\('repo'\)/);
+  assert.match(page, /const params = new URLSearchParams\(location\.search\);\n[^]*?params\.get\('repo'\)/, '?repo= scans at once');
+  assert.match(page, /addEventListener\('popstate', openLink\)/, 'Back and Forward open their link');
   assert.match(page, /<input id="repo"[^>]*list="repositories"/);
   assert.match(page, /<datalist id="repositories">/);
   assert.match(page, /fetch\('\/api\/repositories'\)/, 'the suggestions load on start');
@@ -103,16 +104,20 @@ test('the filter: empty or only spaces → every skill; no match → none', asyn
 });
 
 /** The served page, its own script running in a DOM, at `?<query>`, asking this server; closed after the test. */
-async function openPage(t: { after(fn: () => void): void }, query: string) {
+async function openPage(t: { after(fn: () => void): void }, query: string, hold?: (repo: string) => Promise<void>) {
   const html = await (await fetch(url)).text();
   const scans: string[] = [];
   const dom = new JSDOM(html, {
-    url: `${url}?${query}`,
+    url: query ? `${url}?${query}` : url,
     runScripts: 'dangerously',
     beforeParse(window) {
-      (window as unknown as { fetch: typeof fetch }).fetch = (path) => {
+      (window as unknown as { fetch: typeof fetch }).fetch = async (path) => {
         const asked = new URL(String(path), url);
-        if (asked.pathname === '/api/scan') scans.push(asked.searchParams.get('repo') ?? '');
+        if (asked.pathname === '/api/scan') {
+          const repo = asked.searchParams.get('repo') ?? '';
+          scans.push(repo);
+          await hold?.(repo);
+        }
         return fetch(asked);
       };
     },
@@ -171,8 +176,29 @@ async function openPage(t: { after(fn: () => void): void }, query: string) {
       assert.equal($('scan').disabled, true, 'a new scan started');
       await page.scanned();
     },
+    /** Scans this link from the field, as the user does: its Scan button. */
+    async scanLink(repo: string) {
+      $('repo').value = repo;
+      await page.scanAgain();
+    },
+    /** The field's link. */
+    field: () => $('repo').value,
+    /** How many entries the tab's history has. */
+    history: () => dom.window.history.length,
+    /** The browser's Back (or Forward) button: until the page has moved, and scanned when it has a link. */
+    async go(delta: -1 | 1) {
+      const moved = new Promise((resolve, reject) => {
+        dom.window.addEventListener('popstate', resolve, { once: true });
+        setTimeout(() => reject(new Error('the page did not move: no history entry there')), 2000);
+      });
+      dom.window.history.go(delta);
+      await moved;
+      if (page.linkedRepo() !== null) await page.scanned();
+    },
+    /** Whether the skills and their filter are on screen. */
+    resultsShown: () => !$('results').hidden,
   };
-  await page.scanned();
+  if (query) await page.scanned();
   return page;
 }
 
@@ -335,6 +361,108 @@ test('a new scan keeps the filter', async (t) => {
   assert.deepEqual(page.rows()[1], ['release-[chec]klist', ''], 'highlighted after the new scan');
   assert.equal(page.selected(), 'lint-checks');
   assert.equal(page.linked(), 'CHEC');
+});
+
+test("each new scan is a link in the history: Back scans the one before, Forward the next", async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const start = page.history();
+  await page.scanLink(`${FIXTURE}/agent`);
+  assert.equal(page.history(), start + 1, 'a new entry');
+  assert.equal(page.linkedRepo(), `${FIXTURE}/agent`);
+  assert.equal(page.status(), 'agent · 1 skill');
+
+  await page.go(-1);
+  assert.equal(page.linkedRepo(), FIXTURE, 'Back: the first scan\'s link');
+  assert.equal(page.field(), FIXTURE, 'in the field too');
+  assert.equal(page.status(), 'fixture · 7 skills');
+  assert.equal(page.shown().length, 7);
+  assert.equal(page.selected(), 'aspect-generator');
+  assert.deepEqual(page.scans, [FIXTURE, `${FIXTURE}/agent`, FIXTURE], 'scanned again: nothing is stored');
+
+  await page.go(1);
+  assert.equal(page.linkedRepo(), `${FIXTURE}/agent`, 'Forward: the second scan');
+  assert.equal(page.field(), `${FIXTURE}/agent`);
+  assert.equal(page.status(), 'agent · 1 skill');
+  assert.deepEqual(page.shown(), ['lint-checks']);
+  assert.equal(page.history(), start + 1, 'Back and Forward add no entry');
+});
+
+test('the history: typing in the filter adds no entry; Back and Forward bring back each scan with its filter', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const start = page.history();
+  page.type('chec');
+  page.type('check');
+  assert.equal(page.history(), start, 'typing replaces the link');
+  await page.scanLink(`${FIXTURE}/agent`);
+  assert.equal(page.linked(), 'check', 'a new scan keeps the filter');
+  page.type('lint');
+  assert.equal(page.history(), start + 1);
+
+  await page.go(-1);
+  assert.equal(page.filter(), 'check', 'the first scan\'s filter');
+  assert.equal(page.status(), 'fixture · 2 of 7 skills');
+  assert.deepEqual(page.shown(), ['lint-checks', 'release-checklist']);
+
+  await page.go(1);
+  assert.equal(page.filter(), 'lint');
+  assert.equal(page.status(), 'agent · 1 skill');
+  assert.equal(page.count(), '1 of 1');
+});
+
+test('the history: the same link scanned again adds no entry', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const start = page.history();
+  await page.scanAgain();
+  await page.scanLink(`  ${FIXTURE}  `);
+  assert.equal(page.scans.length, 3, 'scanned again');
+  assert.equal(page.history(), start, 'no new entry');
+});
+
+test('the history: a link with spaces around ?repo=, scanned again, adds no entry and is replaced', async (t) => {
+  const page = await openPage(t, new URLSearchParams({ repo: ` ${FIXTURE} ` }).toString());
+  const start = page.history();
+  await page.scanAgain();
+  assert.equal(page.history(), start, 'no new entry');
+  assert.equal(page.linkedRepo(), FIXTURE, 'the link is replaced, trimmed');
+});
+
+test('the history: Back to the page before any scan → the empty page, only the header', async (t) => {
+  const page = await openPage(t, '');
+  assert.deepEqual(page.scans, []);
+  await page.scanLink(FIXTURE);
+  assert.equal(page.linkedRepo(), FIXTURE);
+  page.type('chec');
+
+  await page.go(-1);
+  assert.equal(page.linkedRepo(), null);
+  assert.equal(page.field(), '');
+  assert.equal(page.filter(), '');
+  assert.equal(page.status(), '');
+  assert.equal(page.resultsShown(), false, 'no skills, no filter');
+  assert.equal(page.scans.length, 1, 'no scan');
+
+  await page.go(1);
+  assert.equal(page.status(), 'fixture · 2 of 7 skills', 'Forward: the scan with its filter');
+  assert.equal(page.filter(), 'chec');
+});
+
+test("the history: Back while a scan runs → only the link's scan shows, the late answer is dropped", async (t) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const page = await openPage(t, fixtureQuery(), (repo) => (repo.endsWith('/agent') ? held : Promise.resolve()));
+  const button = page.document.getElementById('scan') as HTMLButtonElement;
+  (page.document.getElementById('repo') as HTMLInputElement).value = `${FIXTURE}/agent`;
+  button.click();
+  assert.match(page.status() ?? '', /^Scanning .*agent…$/);
+
+  await page.go(-1);
+  assert.equal(page.status(), 'fixture · 7 skills');
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(page.status(), 'fixture · 7 skills', 'the late answer is dropped');
+  assert.equal(page.shown().length, 7);
+  assert.equal(page.linkedRepo(), FIXTURE);
+  assert.equal(button.disabled, false);
 });
 
 test('a GitHub repository: its skills, each with its pinned link and its SKILL.md', async () => {
