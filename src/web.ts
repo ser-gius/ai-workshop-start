@@ -371,10 +371,24 @@ function description(skill) {
   return plain;
 }
 
-// One sentence that is longer than its two lines folds too, once it is on screen and measured.
-function foldIfClamped(item, skill) {
-  const short = item.querySelector('div.description > .clamp');
-  if (short && short.scrollHeight > short.clientHeight + 1) short.parentElement.replaceWith(fold(short, skill.description));
+// One sentence folds only while it is longer than its two lines: measured on screen, again on a resize
+// or a zoom, and when a filter shows the row. Read all, then write, for one layout however many rows.
+function foldIfClamped() {
+  if (!scanned) return;
+  const rows = [];
+  for (const { skill, item } of scanned.entries) {
+    const shown = item.querySelector('.description');
+    if (skill.summary !== skill.description || item.hidden || !shown || shown.hidden || shown.open) continue;
+    const short = shown.querySelector('.clamp');
+    if (shown.matches('details')) {
+      const plain = el('div', 'description');
+      plain.append(short);
+      shown.replaceWith(plain);
+    }
+    rows.push({ skill, short });
+  }
+  const clamped = rows.map(({ short }) => short.scrollHeight > short.clientHeight + 1);
+  rows.forEach(({ skill, short }, i) => clamped[i] && short.parentElement.replaceWith(fold(short, skill.description)));
 }
 
 function fold(short, text) {
@@ -439,7 +453,6 @@ function list(skills, group) {
     if (skill.updated) item.append(updated('div', skill.updated));
     item.addEventListener('click', () => show(skill, item));
     $('skills').append(item);
-    foldIfClamped(item, skill);
     scanned.entries.push({ skill, item, group });
   }
 }
@@ -512,6 +525,7 @@ function applyFilter() {
   $('count').textContent = filterCount(shown, total, filter);
   $('status').textContent = shown === total ? scanned.summary : scanned.id + ' · ' + shown + ' of ' + count(total, 'skill');
   $('no-match').textContent = total && !shown ? 'No skills match "' + filter.trim() + '"' : '';
+  foldIfClamped();
   if (!shown) {
     nothingSelected();
   } else if (!selected || selected.item.hidden) {
@@ -593,6 +607,9 @@ $('form').addEventListener('submit', (event) => {
   updateLink(repo);
   scan(repo);
 });
+
+// A narrower window, or a zoom, can cut a sentence that fitted; a wider one, let it fit.
+window.addEventListener('resize', foldIfClamped);
 
 $('filter').addEventListener('input', () => {
   applyFilter();
