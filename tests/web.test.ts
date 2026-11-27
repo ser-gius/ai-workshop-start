@@ -12,7 +12,7 @@ import { createBrowserBackend } from '../src/browser.ts';
 import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
 import { filterCount, filterSnippet, highlightRanges, matchesFilter, serve, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
-import { CLI, EXAMPLE_COMMIT, EXAMPLE_UPDATED, FIXTURE, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
+import { CLI, EXAMPLE_COMMIT, EXAMPLE_UPDATED, FIXTURE, lockedFixture, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
 
 // The token goes to GitHub with every /user/repos request.
 const authorized: Fetch = (requested, init) => {
@@ -530,6 +530,35 @@ test('a local directory: every skill sorted by name, its SKILL.md as it is, and 
   }
   assert.equal(body.warnings.length, 1);
   assert.match(body.warnings[0], /^\.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
+});
+
+test('a local directory with a folder that cannot be read: its skills, and a warning under the field', async (t) => {
+  const locked = lockedFixture(t);
+  if (locked.skip) return t.skip(locked.skip);
+  const { status, body } = await scan(locked.root);
+  assert.equal(status, 200);
+  assert.equal(body.repository.id, 'locked');
+  assert.deepEqual(body.skills.map((skill) => skill.name), (await scan(FIXTURE)).body.skills.map((skill) => skill.name));
+  assert.equal(body.warnings[0], 'private: not readable; skipped');
+  assert.equal(body.warnings.length, 2);
+
+  const page = await pageAt(t, locked.root);
+  await page.scanned();
+  assert.equal(page.document.getElementById('status')!.textContent, 'locked · 7 skills');
+  assert.equal(page.document.querySelector('#warnings li')?.textContent, 'private: not readable; skipped');
+});
+
+test('a local directory with a folder that cannot be entered and a SKILL.md that cannot be read: their warnings in the answer', async (t) => {
+  const locked = lockedFixture(t, { '.claude/skills/commits': 0o644, '.github/skills/code-style/SKILL.md': 0o000 });
+  if (locked.skip) return t.skip(locked.skip);
+  const { status, body } = await scan(locked.root);
+  assert.equal(status, 200);
+  assert.deepEqual(body.skills.map((skill) => skill.name).filter((name) => name === 'commits' || name === 'code-style'), []);
+  assert.deepEqual(body.warnings.filter((warning) => /not readable|not found/.test(warning)).sort(), [
+    '.claude/skills/commits: not readable; skipped',
+    '.github/skills/code-style/SKILL.md: not readable; skipped',
+    'private: not readable; skipped',
+  ]);
 });
 
 test('an organization: its repositories with skills, grouped, each skill with its link and SKILL.md, and warnings', async () => {

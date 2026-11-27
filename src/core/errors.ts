@@ -9,3 +9,6 @@ export class UnavailableError extends AtlasError {}
 
 /** A repository without a single commit: in an organization, no skills and no warning. */
 export class EmptyRepositoryError extends AtlasError {}
+
+/** A file that is there but cannot be read (no permission): its skill is skipped, with a warning. */
+export class UnreadableError extends AtlasError {}
