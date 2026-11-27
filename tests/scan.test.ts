@@ -105,7 +105,9 @@ test('a folder that cannot be read → a warning, the rest of the directory is s
   if (locked.skip) return t.skip(locked.skip);
   const scanned = await atlas(['scan', locked.root]);
   assert.equal(scanned.code, 0, scanned.stderr);
-  assert.equal(scanned.stdout, fixture.stdout.replaceAll(pathToFileURL(FIXTURE).href, pathToFileURL(locked.root).href).replace(/^fixture · /, 'locked · '));
+  // The copy is in no git repository: no day, where the fixture in a full clone has one.
+  const expected = fixture.stdout.replaceAll(pathToFileURL(FIXTURE).href, pathToFileURL(locked.root).href).replace(/^fixture · /, 'locked · ');
+  assert.equal(scanned.stdout, expected.replace(/\n  updated .*$/gm, ''));
   assert.match(scanned.stdout, /^locked · 7 skills\n/);
   assert.equal(scanned.stderr.split('\n')[0], 'warning: private: not readable; skipped');
   assert.equal(scanned.stderr.split('\n').length, fixture.stderr.split('\n').length + 1, 'the fixture\'s warnings too');
