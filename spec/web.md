@@ -12,7 +12,10 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - The repository and its skill count, then **every skill**: name, description and the **day** it last changed
   ([analysis](analysis.md#when-a-skill-last-changed)), sorted by name
   - A skill is a **stacked row**: its name, in *bold*, and its day beside it on the same line; its description
-    under them, the list's whole width. A thin line between two skills
+    under them, the list's whole width. A thin line between two skills shown one after the other
+  - No line above the first skill shown, nor under a repository's heading, with a filter too (the skills
+    it hides do not count: `?filter=use before` on the fixture → none above `code-style`)
+  - No line next to the hovered or the selected skill, above it or under it
   - The day, `2026-11-20` (UTC), a small muted **chip**; its whole time on hover
     (`Last updated 2026-11-20 09:14:03 UTC`). No date → no chip
 - A description is **trimmed** to its first sentence, on one line, at most *two lines* on screen

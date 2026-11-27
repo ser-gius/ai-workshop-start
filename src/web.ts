@@ -243,10 +243,9 @@ const PAGE = `<!doctype html>
   #skills [hidden] { display: none !important; }
   /* A skill: a stacked row, its name and day on one line, its description under them, a line between two skills. */
   #skills li { position: relative; padding: 10px 12px; border-radius: 8px; cursor: pointer; }
-  #skills li[role="option"] + li[role="option"]::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; border-top: 1px solid var(--line); }
+  #skills li.line::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; border-top: 1px solid var(--line); }
   #skills li:hover { background: #eeece6; }
   #skills li[aria-selected="true"] { background: var(--tile); box-shadow: inset 3px 0 0 var(--accent); }
-  #skills li:hover::before, #skills li:hover + li::before, #skills li[aria-selected="true"]::before, #skills li[aria-selected="true"] + li::before { border-color: transparent; }
   #skills .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
   #skills .name { font: 700 15px/1.5 var(--mono); min-width: 0; overflow-wrap: anywhere; }
   #skills .description, #skills .snippet { margin-top: 2px; color: var(--muted); font-size: 14px; min-width: 0; }
@@ -346,6 +345,7 @@ ${filterCount}
 // The last scan: its repository, and each skill with its item in the list; the selected one.
 let scanned = null;
 let selected = null;
+let hovered = null;
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -399,11 +399,27 @@ function nothingSelected() {
   selected = null;
   for (const item of $('skills').querySelectorAll('li[role="option"]')) item.setAttribute('aria-selected', 'false');
   $('skill').replaceChildren(el('p', 'placeholder', 'Select a skill to read its SKILL.md.'));
+  drawLines();
+}
+
+// The line between two skills shown one after the other, on the second (class "line"): none above the
+// first skill shown, nor under a repository's heading, the rows the filter hides skipped; none next to
+// the hovered or the selected skill.
+function drawLines() {
+  const quiet = (row) => row === hovered || row.getAttribute('aria-selected') === 'true';
+  let previous = null;
+  for (const item of $('skills').children) {
+    if (item.hidden) continue;
+    if (item.getAttribute('role') !== 'option') { previous = null; continue; }
+    item.classList.toggle('line', previous !== null && !quiet(previous) && !quiet(item));
+    previous = item;
+  }
 }
 
 function show(skill, item) {
   selected = { skill, item };
   for (const other of $('skills').querySelectorAll('li[role="option"]')) other.setAttribute('aria-selected', String(other === item));
+  drawLines();
   const view = $('skill');
   const title = el('div', 'card-title');
   title.append($('file-icon').content.cloneNode(true), el('h2', '', skill.name));
@@ -445,6 +461,8 @@ function list(skills, group) {
     if (skill.description) item.append(description(skill));
     item.append(el('div', 'snippet'));
     item.addEventListener('click', () => show(skill, item));
+    item.addEventListener('mouseenter', () => { hovered = item; drawLines(); });
+    item.addEventListener('mouseleave', () => { if (hovered === item) hovered = null; drawLines(); });
     $('skills').append(item);
     foldIfClamped(item, skill);
     scanned.entries.push({ skill, item, group });
@@ -525,6 +543,7 @@ function applyFilter() {
     const first = scanned.entries.find(({ item }) => !item.hidden);
     show(first.skill, first.item);
   }
+  drawLines();
 }
 
 // The link of this view: ?repo= for the scan, ?filter= for the filter field while it has words.
@@ -551,6 +570,7 @@ async function scan(repo) {
   $('status').textContent = 'Scanning ' + repo + '…';
   $('warnings').replaceChildren();
   $('skills').replaceChildren();
+  hovered = null;
   $('skill').replaceChildren();
   $('results').hidden = true;
   try {
