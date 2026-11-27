@@ -221,7 +221,8 @@ function tester(p, script, result, cleanup, stepsShown) {
         server.stderr.on('data', read);
         server.on('exit', (code) => { clearTimeout(timer); fail(new Error(`skill-atlas serve exited (${code}): ${printed.trim()}`)); });
       });
-      const stop = () => new Promise((done) => { if (server.exitCode !== null) return done(); server.once('exit', done); server.kill('SIGINT'); });
+      // Stopped by a signal, a process has no exit code: its signal code says it is gone.
+      const stop = () => new Promise((done) => { if (server.exitCode !== null || server.signalCode !== null) return done(); server.once('exit', done); server.kill('SIGINT'); });
       cleanup.push(stop);
       return { url, printed: printed.trim(), stop };
     },
