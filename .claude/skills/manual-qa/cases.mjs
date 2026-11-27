@@ -418,10 +418,12 @@ export const CASES = {
     await t.see('`release-checklist` selected, its SKILL.md shows', async () => ({ ok: (await t.selected()) === 'release-checklist' && (await t.text('#skill pre.skill-md')).includes('release-checklist') }));
     await t.step(4);
     const top = () => t.p.evaluate(() => scrollY);
-    const before = await top();
     await t.p.keyboard.press('End'); await t.pause(300);
     const end = await focused();
-    await t.p.keyboard.press('ArrowUp'); await t.pause(300); await t.p.keyboard.press(' '); await t.pause(400);
+    // The list scrolls to the focused skill (End); only Space must not scroll the page.
+    await t.p.keyboard.press('ArrowUp'); await t.pause(300);
+    const before = await top();
+    await t.p.keyboard.press(' '); await t.pause(400);
     await t.see('End → `run-tests`, ↑ → `reviews`; Space selects `reviews`; no scroll', async () => ({ ok: end === 'run-tests' && (await focused()) === 'reviews' && (await t.selected()) === 'reviews' && (await top()) === before, detail: `${end}, ${await focused()}, selected ${await t.selected()}, scroll ${before} → ${await top()}` }));
     await t.step(5); await t.p.keyboard.press('Tab'); await t.p.keyboard.press('Enter'); await t.pause(600);
     await t.see("`reviews`' fold unfolds; `reviews` stays selected", async () => ({ ok: (await t.item('reviews').locator('details.description').evaluate((d) => d.open)) && (await t.selected()) === 'reviews', detail: await t.selected() }));
