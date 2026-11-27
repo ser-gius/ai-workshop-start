@@ -77,27 +77,18 @@ def card(name, dur, shake=True):
          if shake else f"[0:v]fps={FPS},{GRAIN}")
     render(['-loop', '1', '-i', os.path.join(CARDS, f'{name}.png'), '-vf', f], dur)
 
-# Part one: the atlas
+# Part one: the atlas. Few shots, and each name held long enough to read.
 card('title', 1.2)
-freeze(clip('cli', 2.0, 1.1), 'cli', 0.7)
-freeze(clip('filter', 1.5, 1.1), 'filter', 0.7)
-clip('fold', 1.5, 1.2, tag='fold')
-clip('orgscan', 2.4, 0.6, stamp='later', stamp_at=0.15)
-freeze(clip('org', 1.8, 1.3), 'org', 0.65)
-clip('link', 1.2, 0.7, tag='link')
-clip('phone', 1.2, 0.8, tag='phone')
+freeze(clip('cli', 2.0, 1.0), 'cli', 1.4)
+freeze(clip('filter', 1.5, 1.1), 'filter', 1.4)
+clip('orgscan', 2.4, 0.8, stamp='later', stamp_at=0.1)
+freeze(clip('org', 1.8, 1.0), 'org', 1.4)
 # Part two: the firm
-card('chapter', 0.8)
-freeze(clip('issues', 1.4, 0.75), 'red', 0.7)
-clip('issue28', 1.2, 0.8, tag='video')
-freeze(clip('slack', 1.5, 0.9), 'agent', 0.8)
-freeze(clip('review', 1.3, 0.75), 'reviewer', 0.7)
-clip('demo', 1.2, 0.7, tag='demo')
-clip('checks', 1.2, 1.1, stamp='green', stamp_at=0.3)
-# A flash of the job, then the end
-for shot in ('fold', 'org', 'slack', 'checks'):
-    s, e = marks[shot]
-    render(['-ss', f'{(s + e) / 2:.3f}', '-i', RAW, '-vf', f'fps={FPS},{GRADE},{punch(0.2, 0.1)},{GRAIN}'], 0.12)
+card('chapter', 1.1)
+freeze(clip('issues', 1.4, 0.8), 'red', 1.5)
+freeze(clip('slack', 1.5, 1.0), 'agent', 1.6)
+freeze(clip('review', 1.3, 0.8), 'reviewer', 1.4)
+clip('checks', 1.2, 1.3, stamp='green', stamp_at=0.3)
 end = LENGTH - now()
 assert end >= 1.0, f'the end card would be {end:.2f} s: shorten a shot'
 card('end', end)
