@@ -1,6 +1,6 @@
 // spec/analysis.md#topics: the skills by topic, from a stubbed `claude` (never a real model), or the heuristic.
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -25,6 +25,9 @@ test('the model: `claude -p --model haiku`, the names and descriptions on stdin,
   const prompt = claude.stdin()!;
   for (const skill of asked) assert.ok(prompt.includes(`- ${skill.name}: ${skill.description}`), skill.name);
   assert.match(prompt, /"topics"/, 'it is asked for JSON');
+  // In the temporary directory, away from any project, so no CLAUDE.md is read along.
+  assert.equal(claude.cwd(), realpathSync(tmpdir()));
+  assert.notEqual(claude.cwd(), realpathSync(process.cwd()));
 });
 
 test('the model: an answer with text around its JSON, or in a code block, is read', async (t) => {

@@ -221,7 +221,7 @@ export function stubClaude(t: Pick<TestContext, 'after'>, body: string) {
   const dir = mkdtempSync(join(tmpdir(), 'skill-atlas-claude-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const command = join(dir, 'claude');
-  writeFileSync(command, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/args"\ncat > "${dir}/stdin"\n${body}\n`);
+  writeFileSync(command, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/args"\npwd -P > "${dir}/cwd"\ncat > "${dir}/stdin"\n${body}\n`);
   chmodSync(command, 0o755);
   const read = (name: string) => {
     try {
@@ -230,7 +230,7 @@ export function stubClaude(t: Pick<TestContext, 'after'>, body: string) {
       return undefined;
     }
   };
-  return { dir, command, args: () => read('args')?.trim().split('\n'), stdin: () => read('stdin') };
+  return { dir, command, args: () => read('args')?.trim().split('\n'), stdin: () => read('stdin'), cwd: () => read('cwd')?.trim() };
 }
 
 /** A stub's body that answers this JSON. */
