@@ -25,6 +25,7 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - The **history**: each new scan's link is an entry of its own, like any link opened; *Back* scans the
   link before, with its filter, *Forward* the next one (afresh: nothing is stored)
   - The same link scanned again, or typing in the filter → no new entry: the link is replaced
+    (`?repo=` with spaces around it is the same link: ` <link> ` → replaced by `<link>`)
   - Back to the page before any scan (no `?repo=`) → the empty page: only the header, the field empty
   - Back while a scan runs → that link's scan; the late answer is dropped
 - A SKILL.md is shown as **text**, never as HTML

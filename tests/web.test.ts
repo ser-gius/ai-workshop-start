@@ -418,6 +418,14 @@ test('the history: the same link scanned again adds no entry', async (t) => {
   assert.equal(page.history(), start, 'no new entry');
 });
 
+test('the history: a link with spaces around ?repo=, scanned again, adds no entry and is replaced', async (t) => {
+  const page = await openPage(t, new URLSearchParams({ repo: ` ${FIXTURE} ` }).toString());
+  const start = page.history();
+  await page.scanAgain();
+  assert.equal(page.history(), start, 'no new entry');
+  assert.equal(page.linkedRepo(), FIXTURE, 'the link is replaced, trimmed');
+});
+
 test('the history: Back to the page before any scan → the empty page, only the header', async (t) => {
   const page = await openPage(t, '');
   assert.deepEqual(page.scans, []);

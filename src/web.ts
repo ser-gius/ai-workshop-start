@@ -522,10 +522,10 @@ function applyFilter() {
 
 // The link of this view: ?repo= for the scan, ?filter= for the filter field while it has words.
 // A new scan is a new entry in the history, like any link opened; the same link again, or typing
-// in the filter, replaces the entry.
+// in the filter, replaces the entry. The link's ?repo= is compared trimmed, as the field is scanned.
 function updateLink(repo) {
   const params = new URLSearchParams(location.search);
-  const isNewScan = repo !== undefined && repo !== params.get('repo');
+  const isNewScan = repo !== undefined && repo !== params.get('repo')?.trim();
   if (repo !== undefined) params.set('repo', repo);
   const filter = $('filter').value;
   if (filter.trim()) params.set('filter', filter.trim());
