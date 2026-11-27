@@ -15,5 +15,5 @@ GITHUB_TOKEN=$(gh auth token) node demo/overview/record.mjs /tmp/skill-atlas-20s
 - The GitHub pages (issues, issue #28, PR #42) are this repository's, live, logged out.
 - [slack.html](slack.html) is not Slack itself (it needs a login): real messages from
   `sergius-private-channel`, the bug notice and the question on issue #33, shortened.
-- The video itself is not committed (see [record-demo](../../.claude/skills/record-demo/SKILL.md)):
-  it is in the pull request that added this, on the `demo-assets` branch.
+- The video: [skill-atlas-20s.mp4](skill-atlas-20s.mp4) (1.9 MB), committed on purpose, unlike the
+  PR demos [record-demo](../../.claude/skills/record-demo/SKILL.md) keeps on `demo-assets`.
