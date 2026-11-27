@@ -118,6 +118,14 @@ test('the heuristic: skills sharing a word in their names; test, tests, testing 
   ]);
 });
 
+test('the heuristic: the plural off, then -ing: settings and setting, bindings and binding are one word', () => {
+  assert.deepEqual(heuristicTopics(skills('gradle-settings', 'ide-setting', 'key-binding', 'bindings-docs', 'commits')), [
+    { title: 'binding', skills: ids('key-binding', 'bindings-docs') },
+    { title: 'setting', skills: ids('gradle-settings', 'ide-setting') },
+    { title: OTHER, skills: ids('commits') },
+  ]);
+});
+
 test('the heuristic: the word most share first, then the next among the rest; a tie alphabetical; Other last', () => {
   assert.deepEqual(
     heuristicTopics(skills('build-bump-gradle-version', 'gradle-plugin', 'kotlin-ui-dsl', 'ui-accessibility', 'run-tests', 'unit-tests', 'gradle-tests', 'writing-tests', 'icons')),

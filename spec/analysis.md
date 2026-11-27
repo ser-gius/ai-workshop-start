@@ -72,7 +72,7 @@ and its skills; *every skill in exactly one*. An organization: one set of topics
 - `claude` missing, failing (exit code not 0), taking more than *30 s*, or an answer with no topic (not JSON,
   not that shape) → the **heuristic**, no warning
 - The **heuristic**: skills that share a *word in their names* (split on anything but letters and digits;
-  `test`, `tests`, `testing` are one word: a plural `s` and `-ing` off). The word most skills share first,
+  `test`, `tests`, `testing` are one word, as `setting`, `settings` are: a plural `s` off, then `-ing`). The word most skills share first,
   its skills a topic titled by the word as they use it most (`testing`, `writing-tests`, `driver-ui-tests` → `tests`);
   then the next among the skills left, a tie by the word in alphabetical order; *at most 6*, while two skills
   share one; the rest → `Other`, last

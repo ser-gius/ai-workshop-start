@@ -117,10 +117,13 @@ function nameWords(name: string): [stem: string, word: string][] {
     .map((word) => [stem(word), word]);
 }
 
-/** `tests`, `testing` → `test`: the plural and `-ing` off, if a word of 3 letters or more is left. */
+/**
+ * `tests`, `testing` → `test`; `settings`, `setting` → `sett`: the plural off, then `-ing`, each if a word
+ * of 3 letters or more is left.
+ */
 function stem(word: string): string {
-  if (word.endsWith('ing') && word.length >= 6) return word.slice(0, -3);
-  if (word.endsWith('s') && !word.endsWith('ss') && word.length >= 4) return word.slice(0, -1);
+  if (word.endsWith('s') && !word.endsWith('ss') && word.length >= 4) word = word.slice(0, -1);
+  if (word.endsWith('ing') && word.length >= 6) word = word.slice(0, -3);
   return word;
 }
 
