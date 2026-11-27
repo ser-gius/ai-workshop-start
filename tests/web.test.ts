@@ -516,11 +516,29 @@ test("each skill's day: next to it in the list, `updated <day>` in the selected 
     ['dated', ['2026-09-15', '2026-09-15T23:30:00Z', 'Last updated 2026-09-15 23:30:00 UTC']],
     ['undated', null],
   ]);
+  // A stacked row: the name and its day's chip on one line, then the description under them.
+  const layout = [...document.querySelectorAll('#skills li[role="option"]')].map((li) =>
+    [...li.children].map((child) => (child.matches('.head') ? [...child.children].map((part) => part.className) : child.className)),
+  );
+  assert.deepEqual(layout, [
+    [['name', 'updated'], 'description', 'snippet'],
+    [['name'], 'description', 'snippet'],
+  ]);
   // The first one is selected: its day under its link.
   assert.equal(document.querySelector('#skill .updated')!.textContent, 'updated 2026-09-15');
   (document.querySelectorAll('#skills li[role="option"]')[1] as HTMLElement).click();
   assert.equal(document.querySelector('#skill h2')!.textContent, 'undated');
   assert.equal(document.querySelector('#skill .updated'), null);
+});
+
+test('a skill is a stacked row: its name in bold, its day a chip beside it, its description under them, a line between skills', async () => {
+  const page = await (await fetch(url)).text();
+  assert.match(page, /#skills \.head \{[^}]*display: flex/, 'the name and the day on one line');
+  assert.match(page, /#skills \.name \{[^}]*font: 700 /, 'the name in bold');
+  assert.match(page, /#skills \.head \.updated \{[^}]*border-radius: 999px/, 'the day: a chip');
+  assert.match(page, /#skills \.description, #skills \.snippet \{[^}]*margin-top/, 'the description under them');
+  assert.doesNotMatch(page, /grid-column: 2/, 'not in a column beside the name');
+  assert.match(page, /#skills li\[role="option"\] \+ li\[role="option"\]::before \{[^}]*border-top: 1px solid var\(--line\)/, 'a thin line between two skills');
 });
 
 test('the API: a skill whose day is unknown (a directory outside git) has `updated: null`', async (t) => {

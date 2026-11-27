@@ -11,8 +11,10 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - No skill selected (no match, or no skills) → the SKILL.md view says `Select a skill to read its SKILL.md.`
 - The repository and its skill count, then **every skill**: name, description and the **day** it last changed
   ([analysis](analysis.md#when-a-skill-last-changed)), sorted by name
-  - The day, `2026-11-20` (UTC), under the name; its whole time on hover
-    (`Last updated 2026-11-20 09:14:03 UTC`). No date → nothing there
+  - A skill is a **stacked row**: its name, in *bold*, and its day beside it on the same line; its description
+    under them, the list's whole width. A thin line between two skills
+  - The day, `2026-11-20` (UTC), a small muted **chip**; its whole time on hover
+    (`Last updated 2026-11-20 09:14:03 UTC`). No date → no chip
 - A description is **trimmed** to its first sentence, on one line, at most *two lines* on screen
   (a long sentence too); when there is more (a second sentence, or a sentence cut at two lines), it is
   **foldable**: `▸` shows it, a click unfolds the whole description (`▾`), another folds it.
