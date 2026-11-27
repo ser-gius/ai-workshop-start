@@ -67,8 +67,15 @@ function repositoryAnswer({ repository, skills }: ScanResult): RepositoryAnswer 
   };
 }
 
+/** Node's answer to a request it rejects before the handler, by its parser's code; a link too long gets JSON. */
+const REJECTED: Record<string, string> = {
+  HPE_HEADER_OVERFLOW: '431 Request Header Fields Too Large',
+  HPE_CHUNK_EXTENSIONS_OVERFLOW: '413 Payload Too Large',
+  ERR_HTTP_REQUEST_TIMEOUT: '408 Request Timeout',
+};
+
 export function createWebServer({ open, repositories }: WebOptions): Server {
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     const send = (status: number, type: string, body: string) => {
       response.writeHead(status, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-store' });
@@ -115,6 +122,22 @@ export function createWebServer({ open, repositories }: WebOptions): Server {
       send(500, 'application/json', JSON.stringify({ error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}` }));
     }
   });
+  // A request over Node's 16 KB for its line and headers (a very long link) never reaches the handler:
+  // Node answers 431 with an empty body, so the page would read no message. It gets one in JSON here;
+  // every other rejected request is answered as Node does without this listener.
+  server.on('clientError', (error: NodeJS.ErrnoException, socket) => {
+    // As Node: no answer over one already being written on this socket (keep-alive).
+    const inFlight = (socket as { _httpMessage?: { _headerSent?: boolean } })._httpMessage;
+    if (!socket.writable || inFlight?._headerSent) return socket.destroy();
+    const status = REJECTED[error.code ?? ''] ?? '400 Bad Request';
+    if (error.code !== 'HPE_HEADER_OVERFLOW') return socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+    const body = JSON.stringify({ error: 'The link is too long' });
+    socket.end(
+      `HTTP/1.1 ${status}\r\nContent-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\n` +
+        `Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
+    );
+  });
+  return server;
 }
 
 // The filter's functions. The page runs these very functions, so they stay plain JavaScript once
@@ -548,7 +571,9 @@ async function scan(repo) {
   $('results').hidden = true;
   try {
     const response = await fetch('/api/scan?repo=' + encodeURIComponent(repo));
-    const answer = await response.json();
+    // Not JSON (a proxy's page, an empty body): what the server answered, not a parser's error.
+    const answer = await response.json().catch(() => null);
+    if (!answer) throw new Error(('The server answered ' + response.status + ' ' + response.statusText).trim());
     if (!response.ok) throw new Error(answer.error);
     // Shown before the skills are listed: a description is measured, to fold, only on screen.
     $('results').hidden = false;

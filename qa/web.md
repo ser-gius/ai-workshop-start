@@ -117,6 +117,16 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
   `Not a GitHub URL or a readable directory: /no/such/directory`
 - No skills, no selected skill; the page still works: scanning `<checkout>/fixture` next shows its skills
 
+### WEB-32 · A very long link
+**Steps**
+1. Paste `https://github.com/` followed by 17000 `a` in the field (`python3 -c "print('https://github.com/' + 'a' * 17000)"`), then **Scan**
+2. `curl -s -w ' %{http_code}\n' "http://127.0.0.1:4173/api/scan?repo=$(python3 -c "print('a' * 20000)")"`
+
+**Should see**
+- Step 1: `The link is too long` in the header, not a JavaScript error (`Unexpected end of JSON input`);
+  no skills; the page still works: scanning `<checkout>/fixture` next shows its skills
+- Step 2: `{"error":"The link is too long"} 431`
+
 ### WEB-10 · A scan has a link of its own
 **Steps**
 1. Scan `<checkout>/fixture`; copy the address bar

@@ -4,6 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { request } from 'node:http';
+import { connect } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test, type TestContext } from 'node:test';
@@ -852,4 +853,35 @@ test("an organization: its card shows while it scans, the filter and the skills 
   await page.scanned();
   assert.equal(page.card().hidden, false);
   assert.equal(results(), false, 'answered: the filter and the skills');
+});
+
+// A link longer than Node's 16 KB for a request's line and headers never reaches the server's handler.
+const TOO_LONG = `https://github.com/${'a'.repeat(17000)}`;
+
+test('a link too long for a request → 431 with a clear message', async () => {
+  assert.deepEqual(await scan(TOO_LONG), { status: 431, body: { error: 'The link is too long' } });
+});
+
+test('a malformed request → 400, as without the handler for a too long one', async () => {
+  const socket = connect(new URL(url).port as unknown as number, '127.0.0.1');
+  socket.end('NOT HTTP\r\n\r\n');
+  let answer = '';
+  for await (const chunk of socket) answer += chunk;
+  assert.match(answer, /^HTTP\/1\.1 400 Bad Request\r\n/);
+});
+
+test('a link too long: the page shows its clear message, no skills', async (t) => {
+  const page = await pageAt(t, TOO_LONG);
+  await page.scanned();
+  const status = page.document.getElementById('status')!;
+  assert.equal(status.textContent, 'The link is too long');
+  assert.equal(status.className, 'error');
+  assert.equal((page.document.getElementById('results') as HTMLElement).hidden, true, 'no skills');
+});
+
+test('an answer that is not JSON: the page says what the server answered', async (t) => {
+  const page = await pageAt(t, FIXTURE, async () => new Response('', { status: 502, statusText: 'Bad Gateway' }));
+  await page.scanned();
+  assert.equal(page.document.getElementById('status')!.textContent, 'The server answered 502 Bad Gateway');
+  assert.equal((page.document.getElementById('results') as HTMLElement).hidden, true, 'no skills');
 });
