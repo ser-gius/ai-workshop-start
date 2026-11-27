@@ -548,17 +548,41 @@ function applyFilter() {
 }
 
 // The link of this view: ?repo= for the scan, ?filter= for the filter field while it has words.
+// A new scan is a new entry in the history, like any link opened; the same link again, or typing
+// in the filter, replaces the entry. The link's ?repo= is compared trimmed, as the field is scanned.
 function updateLink(repo) {
   const params = new URLSearchParams(location.search);
+  const isNewScan = repo !== undefined && repo !== params.get('repo')?.trim();
   if (repo !== undefined) params.set('repo', repo);
   const filter = $('filter').value;
   if (filter.trim()) params.set('filter', filter.trim());
   else params.delete('filter');
   const query = params.toString();
-  history.replaceState(null, '', query ? '?' + query : location.pathname);
+  history[isNewScan ? 'pushState' : 'replaceState'](null, '', query ? '?' + query : location.pathname);
+}
+
+// Each scan is numbered: an answer that comes after a newer scan (Back while scanning) is dropped.
+let scans = 0;
+
+// The page before any scan: only the header.
+function empty() {
+  scans++;
+  scanned = null;
+  selected = null;
+  $('organization').hidden = true;
+  $('scan').disabled = false;
+  $('status').className = '';
+  $('status').textContent = '';
+  $('warnings').replaceChildren();
+  $('skills').replaceChildren();
+  $('skill').replaceChildren();
+  $('no-match').textContent = '';
+  $('count').textContent = '';
+  $('results').hidden = true;
 }
 
 async function scan(repo) {
+  const current = ++scans;
   scanned = null;
   selected = null;
   $('no-match').textContent = '';
@@ -577,6 +601,7 @@ async function scan(repo) {
     const response = await fetch('/api/scan?repo=' + encodeURIComponent(repo));
     // Not JSON (a proxy's page, an empty body): what the server answered, not a parser's error.
     const answer = await response.json().catch(() => null);
+    if (current !== scans) return;
     if (!answer) throw new Error(('The server answered ' + response.status + ' ' + response.statusText).trim());
     if (!response.ok) throw new Error(answer.error);
     // Shown before the skills are listed: a description is measured, to fold, only on screen.
@@ -607,11 +632,12 @@ async function scan(repo) {
     }
     applyFilter();
   } catch (error) {
+    if (current !== scans) return;
     $('organization').hidden = true;
     $('status').className = 'error';
     $('status').textContent = error.message;
   } finally {
-    $('scan').disabled = false;
+    if (current === scans) $('scan').disabled = false;
   }
 }
 
@@ -645,9 +671,18 @@ async function suggest() {
 }
 suggest();
 
-$('filter').value = new URLSearchParams(location.search).get('filter') || '';
-const initial = new URLSearchParams(location.search).get('repo');
-if (initial) { $('repo').value = initial; scan(initial); }
+// The view of this link: its filter, and its scan (or the empty page without ?repo=).
+function openLink() {
+  const params = new URLSearchParams(location.search);
+  $('filter').value = params.get('filter') || '';
+  const repo = params.get('repo');
+  $('repo').value = repo || '';
+  if (repo) scan(repo);
+  else empty();
+}
+// Back and Forward: the link of that entry, scanned afresh.
+window.addEventListener('popstate', openLink);
+openLink();
 </script>
 </body>
 </html>
