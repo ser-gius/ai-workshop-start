@@ -6,5 +6,5 @@
 - `history.length` in jsdom counts `pushState` entries, so "typing adds no entry" can be asserted directly
 - A real-Chrome check that needs no network: `record.mjs history` (record-demo) starts on a `data:` page before Skill Atlas; on the old code its first Back fails with `Cannot read properties of null (reading 'textContent')`
 - A scan's answer can arrive after a newer scan (Back while scanning): `scan()` numbers each scan and drops a stale answer, and only the latest scan re-enables the button
-- Four parallel automation runs used up the token's core limit again, so the local `npm run test:e2e` failed with `GitHub rate limit reached`; CI's own token ran them
+- The token's core limit was used up (`gh api rate_limit`: `remaining: 0`, cause unknown), so the local `npm run test:e2e` failed with `GitHub rate limit reached`; CI's own token ran them
 **Why it matters**: without the timeout, a history test on broken code looks like a hung test run, not a failure.
