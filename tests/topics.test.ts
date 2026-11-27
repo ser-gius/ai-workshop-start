@@ -139,6 +139,18 @@ test('the heuristic: the word most share first, then the next among the rest; a 
   );
 });
 
+test('the heuristic, in an organization: one name in two repositories counts once; both skills go where it goes', () => {
+  const skill = (repo: string, name: string): TopicSkill => ({ id: `${repo}:${name}`, name, description: '' });
+  assert.deepEqual(heuristicTopics([skill('x', 'commits'), skill('y', 'commits'), skill('x', 'lint')]), [
+    { title: OTHER, skills: ['x:commits', 'y:commits', 'x:lint'] },
+  ]);
+  // Names sharing `test`: a topic, with every copy of run-test; the title counts names (test once, tests twice), not copies.
+  assert.deepEqual(heuristicTopics([skill('x', 'run-test'), skill('y', 'run-test'), skill('z', 'run-test'), skill('x', 'unit-tests'), skill('x', 'writing-tests'), skill('y', 'lint')]), [
+    { title: 'tests', skills: ['x:run-test', 'y:run-test', 'z:run-test', 'x:unit-tests', 'x:writing-tests'] },
+    { title: OTHER, skills: ['y:lint'] },
+  ]);
+});
+
 test('the heuristic: at most 6 topics; no shared word → every skill in Other; every skill in exactly one', () => {
   const many = skills(...['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].flatMap((word) => [`${word}x-1`, `${word}x-2`]));
   const topics = heuristicTopics(many);

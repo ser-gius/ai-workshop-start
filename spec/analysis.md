@@ -75,7 +75,8 @@ and its skills; *every skill in exactly one*. An organization: one set of topics
   `test`, `tests`, `testing` are one word, as `setting`, `settings` are: a plural `s` off, then `-ing`). The word most skills share first,
   its skills a topic titled by the word as they use it most (`testing`, `writing-tests`, `driver-ui-tests` → `tests`);
   then the next among the skills left, a tie by the word in alphabetical order; *at most 6*, while two skills
-  share one; the rest → `Other`, last
+  share one; the rest → `Other`, last. It counts *names*, not skills: in an organization, one name in two
+  repositories counts once (no topic of one name), and both skills go where the name goes
 - No skills → no topics, and the model is not asked
 - Only the web view asks for topics ([web](web.md#topics)); the CLI does not
 

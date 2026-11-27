@@ -82,18 +82,21 @@ function add(topics: Topic[], title: string, ids: string[]) {
 }
 
 /**
- * Without a model: skills that share a word in their names. The word most of them share first
+ * Without a model: skills that share a word in their names. The word most names share first
  * (`writing-tests`, `driver-ui-tests`, `testing` → *tests*: `test`, `tests`, `testing` are one word),
  * its skills a topic titled by the word; then the next, among the skills left, while two share one,
- * at most MAX_TOPICS; the rest, `Other`. A tie: the word first in alphabetical order.
+ * at most MAX_TOPICS; the rest, `Other`. A tie: the word first in alphabetical order. Names are counted,
+ * not skills: one name in two repositories counts once, and both skills go where it goes.
  */
 export function heuristicTopics(skills: TopicSkill[]): Topic[] {
   const words = new Map(skills.map((skill) => [skill.id, nameWords(skill.name)]));
   let left = skills;
   const topics: Topic[] = [];
   while (topics.length < MAX_TOPICS) {
-    const counts = new Map<string, number>();
-    for (const skill of left) for (const stem of new Set(words.get(skill.id)!.map(([stem]) => stem))) counts.set(stem, (counts.get(stem) ?? 0) + 1);
+    // Names, not skills: one name in two repositories of an organization is one.
+    const names = new Map<string, Set<string>>();
+    for (const skill of left) for (const [stem] of words.get(skill.id)!) names.set(stem, (names.get(stem) ?? new Set()).add(skill.name));
+    const counts = new Map([...names].map(([stem, of]) => [stem, of.size]));
     let best: string | undefined;
     for (const [stem, n] of counts) {
       const most = best === undefined ? 0 : counts.get(best)!;
@@ -101,7 +104,8 @@ export function heuristicTopics(skills: TopicSkill[]): Topic[] {
     }
     if (best === undefined) break;
     const members = left.filter((skill) => words.get(skill.id)!.some(([stem]) => stem === best));
-    topics.push({ title: title(members.flatMap((skill) => words.get(skill.id)!.filter(([stem]) => stem === best).map(([, word]) => word))), skills: members.map((skill) => skill.id) });
+    const named = members.filter((skill, index) => members.findIndex((other) => other.name === skill.name) === index);
+    topics.push({ title: title(named.flatMap((skill) => words.get(skill.id)!.filter(([stem]) => stem === best).map(([, word]) => word))), skills: members.map((skill) => skill.id) });
     left = left.filter((skill) => !members.includes(skill));
   }
   if (left.length) topics.push({ title: OTHER, skills: left.map((skill) => skill.id) });
