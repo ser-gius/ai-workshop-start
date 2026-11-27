@@ -376,13 +376,17 @@ function description(skill) {
 // One sentence that is longer than its two lines folds too, once it is on screen and measured.
 function foldIfClamped(item, skill) {
   const short = item.querySelector('div.description > .clamp');
-  if (short && short.scrollHeight > short.clientHeight + 1) short.parentElement.replaceWith(fold(short, skill.description));
+  if (short && short.scrollHeight > short.clientHeight + 1) {
+    short.parentElement.replaceWith(fold(short, skill.description));
+    foldStop(document.activeElement.closest('#skills li[role="option"]') || (selected && selected.item));
+  }
 }
 
 function fold(short, text) {
   const fold = el('details', 'description');
   const summary = el('summary');
   summary.title = 'Show the whole description';
+  summary.tabIndex = -1; // a Tab stop only in the focused or selected skill: foldStop
   summary.append(short);
   const whole = el('div', 'whole', text);
   whole.title = 'Fold';
@@ -432,10 +436,22 @@ function count(n, one, many) {
   return n + ' ' + (n === 1 ? one : many || one + 's');
 }
 
-// The list is one Tab stop, as a listbox: this skill; the others are reached with the arrow keys.
+// The list is one Tab stop, as a listbox: the selected skill; the others are reached with the arrow keys.
 function tabStop(item) {
   for (const other of $('skills').querySelectorAll('li[role="option"]')) other.tabIndex = other === item ? 0 : -1;
+  foldStop(item);
 }
+
+// Only the fold of the focused skill (else the selected one) is a Tab stop: Tab does not walk every fold.
+function foldStop(item) {
+  for (const summary of $('skills').querySelectorAll('details.description summary')) {
+    summary.tabIndex = item && item.contains(summary) ? 0 : -1;
+  }
+}
+$('skills').addEventListener('focusin', (event) => foldStop(event.target.closest('li[role="option"]')));
+$('skills').addEventListener('focusout', (event) => {
+  if (!$('skills').contains(event.relatedTarget)) foldStop(selected && selected.item);
+});
 
 // The keys of a listbox: ↓ ↑ Home End move the focus among the skills shown, Enter or Space selects
 // the focused one. Keys on a fold inside a skill are the fold's, but the arrows still move.
@@ -447,9 +463,7 @@ function onListKey(event) {
   const next = { ArrowDown: shown[at + 1], ArrowUp: shown[at - 1], Home: shown[0], End: shown[shown.length - 1] };
   if (event.key in next) {
     event.preventDefault();
-    const to = next[event.key] || item;
-    tabStop(to);
-    to.focus();
+    (next[event.key] || item).focus();
   } else if ((event.key === 'Enter' || event.key === ' ') && event.target === item) {
     event.preventDefault();
     const entry = scanned.entries.find((candidate) => candidate.item === item);
@@ -548,10 +562,6 @@ function applyFilter() {
   } else if (!selected || selected.item.hidden) {
     const first = scanned.entries.find(({ item }) => !item.hidden);
     show(first.skill, first.item);
-  } else {
-    // The skill last reached with the arrows is filtered out: Tab goes to the selected one.
-    const stop = $('skills').querySelector('li[role="option"][tabindex="0"]');
-    if (!stop || stop.hidden) tabStop(selected.item);
   }
 }
 

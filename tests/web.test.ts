@@ -876,6 +876,8 @@ function keyboard(document: Document) {
       target.dispatchEvent(event);
       return event.defaultPrevented;
     },
+    /** The skills whose fold `▸` Tab stops on, by name. */
+    foldStops: () => [...document.querySelectorAll('#skills details.description summary')].filter((summary) => (summary as HTMLElement).tabIndex === 0).map(nameOf),
     /** Tab into the list: the focus goes to its one Tab stop. */
     tabIn() {
       const [stop, ...more] = [...document.querySelectorAll('#skills li[role="option"]')].filter((li) => (li as HTMLElement).tabIndex === 0);
@@ -925,9 +927,8 @@ test('the keyboard: ↓ ↑ Home End move the focus between the skills, no wrap;
   assert.equal(keys.focused(), 'aspect-generator', 'no wrap at the start');
   assert.equal(page.selected(), 'aspect-generator');
   keys.press('ArrowDown');
-  assert.deepEqual(keys.tabStops(), ['code-style'], 'Tab back into the list returns to the focused skill');
-  page.type('generator');
-  assert.deepEqual(keys.tabStops(), ['aspect-generator'], 'that skill filtered out: the selected one');
+  assert.equal(keys.focused(), 'code-style');
+  assert.deepEqual(keys.tabStops(), ['aspect-generator'], 'the Tab stop stays on the selected skill, not the focused one');
 });
 
 test('the keyboard: Enter or Space selects the focused skill, as a click; release-checklist, with no fold, too', async (t) => {
@@ -974,6 +975,24 @@ test('the keyboard: a fold is a Tab stop of its own; Enter on it keeps the selec
   assert.equal(page.selected(), 'aspect-generator', 'unfolding keeps the selected skill');
   keys.press('ArrowDown');
   assert.equal(keys.focused(), 'commits', 'from inside a skill, ↓ goes to the next one');
+});
+
+test('the keyboard: only the fold of the focused skill, else the selected one, is a Tab stop', async (t) => {
+  const page = await openPage(t, fixtureQuery());
+  const keys = keyboard(page.document);
+  assert.deepEqual(keys.foldStops(), ['aspect-generator'], 'at first: the selected skill\'s fold, no other');
+  page.select('run-tests');
+  assert.deepEqual(keys.foldStops(), ['run-tests'], 'Tab from the filter: run-tests, not the folds above it');
+  keys.tabIn();
+  keys.press('Home');
+  keys.press('ArrowDown');
+  assert.equal(keys.focused(), 'code-style');
+  assert.deepEqual(keys.foldStops(), ['code-style'], 'the focused skill: Tab goes to its own fold');
+  assert.deepEqual(keys.tabStops(), ['run-tests']);
+  (page.document.querySelector('#filter') as HTMLElement).focus();
+  assert.deepEqual(keys.foldStops(), ['run-tests'], 'the focus out of the list: back to the selected skill');
+  page.type('zzz');
+  assert.deepEqual(keys.foldStops(), [], 'no match: no fold to stop on');
 });
 
 test("the keyboard: across an organization's repositories, past their headings", async (t) => {

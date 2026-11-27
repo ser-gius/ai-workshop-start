@@ -143,4 +143,10 @@ test('keyboard: Tab into the skills, the arrow keys, Enter selects; a fold too',
   await expect(skills(page).nth(5).locator('details.description')).toHaveAttribute('open', '');
   await expect(page.locator('#skill h2')).toHaveText('release-checklist'); // unfolding keeps the selection
   await expect(page).toHaveScreenshot('keyboard-unfolded.png');
+
+  // The folds above the selected skill are no Tab stops: one Tab from the filter reaches it.
+  await skills(page).nth(6).locator('.name').click();
+  await page.locator('#filter').focus();
+  await page.keyboard.press('Tab');
+  await expect(focused.locator('.name')).toHaveText('run-tests');
 });

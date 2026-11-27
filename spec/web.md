@@ -18,11 +18,14 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
   **foldable**: `▸` shows it, a click unfolds the whole description (`▾`), another folds it.
   Folding does not change the selected skill
 - A selected skill (the first one at first): its name, link, `also in <paths>`, `updated <day>`, and its **SKILL.md** as it is
-- The **keyboard** reaches every skill, as a `listbox` does: the list is *one* Tab stop, on the selected skill
+- The **keyboard** reaches every skill, as a `listbox` does: the list is *one* Tab stop, on the selected skill;
+  the arrows move the focus, not the Tab stop, so Tab back into the list returns to the selected skill
   - `↓` / `↑` move the focus to the next / previous skill shown, `Home` / `End` to the first / last;
     across an organization's repositories, past their headings; no wrap at the ends
   - `Enter` or `Space` selects the focused skill, as a click does; the focus alone selects nothing
   - A fold `▸` inside a skill is a Tab stop of its own: `Enter` on it unfolds, and keeps the selected skill
+    - Only the fold of the *focused* skill (focus out of the list: the selected one) is a Tab stop; the
+      others' are not: click `run-tests` in `fixture`, Tab from the filter → `run-tests`, not the 5 folds above it
   - The focused skill shows a ring; the list scrolls to it
   - `release-checklist`, with no description and so no fold, is reached like any other
 - **Suggestions** in the field: the user's GitHub repositories; picking one fills in its URL
