@@ -72,6 +72,21 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
   ``Start with the area, then say what changed: `editor: keep the caret after undo`.``
 - Step 2: `also in .claude/skills/reviews/SKILL.md` under its link
 
+### WEB-32 · Selecting a skill with the keyboard
+**Steps**
+1. Click in the filter field, then press Tab
+2. Press ↓ four times
+3. Press Enter
+4. Press End, then ↑; press Space
+5. Press Tab, then Enter
+
+**Should see**
+- Step 1: a ring on `aspect-generator`, the selected skill: the list is one Tab stop
+- Step 2: the ring moves down to `release-checklist` (it has no `▸`); `aspect-generator` stays selected
+- Step 3: `release-checklist` is selected, its SKILL.md shows, as with a click
+- Step 4: the ring on `run-tests`, then `reviews`; Space selects `reviews`; the page does not scroll
+- Step 5: Tab goes to `reviews`' `▸`; Enter unfolds it, and `reviews` stays selected
+
 ### WEB-06 · A SKILL.md is shown as text, never as HTML
 **Steps**
 1. Copy `fixture` to a scratch folder: `cp -r fixture /tmp/qa-fixture`
@@ -205,9 +220,9 @@ See [README.md](README.md) for the setup. Unless a case says otherwise: start th
 3. Scan `https://github.com/JetBrains` (many repositories with skills)
 
 **Should see**
-- Step 1: *Scan the organization*, above the skills; `github.com/getnao` and a pill `…`; the progress bar moving
-  (no percentage)
-- Step 2: the pill `<m> repositories` (forks left out), the bar **full**; `<k> with skills` and the
+- Step 1: *Scan the organization*, the only thing under the header; `github.com/getnao` and a pill `…`; the
+  progress bar moving (no percentage)
+- Step 2: the card above the skills; the pill `<m> repositories` (forks left out), the bar **full**; `<k> with skills` and the
   repositories, most skills first (a tie by name, ignoring case), each as its name without `getnao/`, in
   monospace, linked, with `N skills`; with 3 or fewer, no `among them` and no `+<n> more`
 - Step 3: `<k> with skills, among them`, the **top 3**, then `+<k − 3> more`

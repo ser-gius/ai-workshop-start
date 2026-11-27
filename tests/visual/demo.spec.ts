@@ -113,6 +113,15 @@ test('org: scanning, the card and the grouped skills, then the filter `review` a
   await filter(page, 'review');
   await expect(page.locator('#count')).toHaveText(/^\d+ of \d+$/);
   await expect(page).toHaveScreenshot('org-review.png');
+
+  // The list scrolls to the focused skill: End reaches the last one, off screen until then.
+  await page.locator('#filter').fill('');
+  const last = skills(page).last();
+  await expect(last).not.toBeInViewport();
+  await skills(page).first().locator('.name').click(); // the focus on the first skill
+  await page.keyboard.press('End');
+  await expect(last).toBeFocused();
+  await expect(last).toBeInViewport();
 });
 
 test('link: `?repo=…&filter=gradle` opens the filtered view at once', async ({ page }) => {
@@ -120,6 +129,38 @@ test('link: `?repo=…&filter=gradle` opens the filtered view at once', async ({
   await expect(page.locator('#filter')).toHaveValue('gradle');
   await expect(page.locator('#count')).toHaveText(/^\d+ of 7$/);
   await expect(page).toHaveScreenshot('link.png');
+});
+
+test('keyboard: Tab into the skills, the arrow keys, Enter selects; a fold too', async ({ page }) => {
+  await scan(page, FIXTURE_COPY);
+  await expect(page.locator('#count')).toHaveText('7 skills');
+  const focused = page.locator('#skills li[role="option"]:focus');
+
+  await page.locator('#filter').focus();
+  await page.keyboard.press('Tab');
+  await expect(focused.locator('.name')).toHaveText('aspect-generator'); // one Tab stop: the selected skill
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown', { delay: 150 });
+  await expect(focused.locator('.name')).toHaveText('release-checklist'); // no fold, still reached
+  await expect(page.locator('#skill h2')).toHaveText('aspect-generator'); // the focus alone selects nothing
+  await expect(page).toHaveScreenshot('keyboard-focused.png');
+
+  await page.keyboard.press('Enter');
+  await expect(skills(page).nth(4)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#skill h2')).toHaveText('release-checklist');
+  await expect(page).toHaveScreenshot('keyboard-selected.png');
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Tab'); // reviews' fold
+  await page.keyboard.press('Enter');
+  await expect(skills(page).nth(5).locator('details.description')).toHaveAttribute('open', '');
+  await expect(page.locator('#skill h2')).toHaveText('release-checklist'); // unfolding keeps the selection
+  await expect(page).toHaveScreenshot('keyboard-unfolded.png');
+
+  // The folds above the selected skill are no Tab stops: one Tab from the filter reaches it.
+  await skills(page).nth(6).locator('.name').click();
+  await page.locator('#filter').focus();
+  await page.keyboard.press('Tab');
+  await expect(focused.locator('.name')).toHaveText('run-tests');
 });
 
 test.describe('narrow: a 375 px wide screen', () => {

@@ -1,7 +1,7 @@
 # Visual tests
 
 The demo ([record-demo](../../.claude/skills/record-demo/SKILL.md)) as Playwright tests: the same cases
-(`fixture`, `scan`, `filter`, `org`, `link`), plus `narrow`, the header on a phone; a screenshot at each key moment, compared with a baseline
+(`fixture`, `scan`, `filter`, `org`, `keyboard`, `link`), plus `narrow`, the header on a phone; a screenshot at each key moment, compared with a baseline
 pixel for pixel. Every run is recorded: a video per test, in `test-results/` (an artifact on CI).
 
 What keeps them deterministic:

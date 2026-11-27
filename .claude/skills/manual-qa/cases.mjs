@@ -406,6 +406,26 @@ export const CASES = {
     await t.step(2); await t.click('reviews');
     await t.see('`also in .claude/skills/reviews/SKILL.md`', async () => same(await t.text('#skill .copies'), 'also in .claude/skills/reviews/SKILL.md'));
   },
+  async 'WEB-32'(t) {
+    const s = await t.serve(); await t.open(s.url); await t.scan(t.fixture);
+    const focused = () => t.p.evaluate(() => document.activeElement.closest('li[role="option"]')?.querySelector('.name').textContent ?? document.activeElement.tagName);
+    const ring = () => t.p.evaluate(() => { const a = document.activeElement; return a.matches(':focus-visible') && getComputedStyle(a).outlineStyle !== 'none'; });
+    await t.step(1); await t.p.focus('#filter'); await t.p.keyboard.press('Tab'); await t.pause(400);
+    await t.see('A ring on `aspect-generator`, the selected skill', async () => ({ ok: (await focused()) === 'aspect-generator' && (await ring()) && (await t.selected()) === 'aspect-generator', detail: await focused() }));
+    await t.step(2); for (let i = 0; i < 4; i++) { await t.p.keyboard.press('ArrowDown'); await t.pause(300); }
+    await t.see('The ring on `release-checklist`; `aspect-generator` stays selected', async () => ({ ok: (await focused()) === 'release-checklist' && (await ring()) && (await t.selected()) === 'aspect-generator', detail: `${await focused()}, selected ${await t.selected()}` }));
+    await t.step(3); await t.p.keyboard.press('Enter'); await t.pause(400);
+    await t.see('`release-checklist` selected, its SKILL.md shows', async () => ({ ok: (await t.selected()) === 'release-checklist' && (await t.text('#skill pre.skill-md')).includes('release-checklist') }));
+    await t.step(4);
+    const top = () => t.p.evaluate(() => scrollY);
+    const before = await top();
+    await t.p.keyboard.press('End'); await t.pause(300);
+    const end = await focused();
+    await t.p.keyboard.press('ArrowUp'); await t.pause(300); await t.p.keyboard.press(' '); await t.pause(400);
+    await t.see('End → `run-tests`, ↑ → `reviews`; Space selects `reviews`; no scroll', async () => ({ ok: end === 'run-tests' && (await focused()) === 'reviews' && (await t.selected()) === 'reviews' && (await top()) === before, detail: `${end}, ${await focused()}, selected ${await t.selected()}, scroll ${before} → ${await top()}` }));
+    await t.step(5); await t.p.keyboard.press('Tab'); await t.p.keyboard.press('Enter'); await t.pause(600);
+    await t.see("`reviews`' fold unfolds; `reviews` stays selected", async () => ({ ok: (await t.item('reviews').locator('details.description').evaluate((d) => d.open)) && (await t.selected()) === 'reviews', detail: await t.selected() }));
+  },
   async 'WEB-06'(t) {
     const dir = join(mkdtempSync(join(tmpdir(), 'qa-')), 'qa-fixture');
     await t.step(1, dir); await t.sh(`cp -r fixture ${dir}`);
@@ -597,8 +617,12 @@ export const CASES = {
       const state = await t.p.evaluate(() => ({ hidden: document.getElementById('organization').hidden, name: document.getElementById('org-name').textContent, pill: document.getElementById('org-count').textContent, running: document.getElementById('org-progress').classList.contains('running'), now: document.getElementById('org-progress').getAttribute('aria-valuenow') }));
       return { ok: !state.hidden && state.name === 'github.com/getnao' && state.pill === '…' && state.running && state.now === null, detail: JSON.stringify(state) };
     });
-    await t.see('The card above the skills', async () => ({ ok: (await t.p.locator('#organization').boundingBox()).y < (await t.p.locator('#list').boundingBox()).y }));
     await t.step(2); await t.scanned();
+    // While it scans, only the header and the card show (spec/web.md): the skills, to be under it, come with the answer.
+    await t.see('The card above the skills', async () => {
+      const card = await t.p.locator('#organization').boundingBox(), list = await t.p.locator('#list').boundingBox();
+      return { ok: !!card && !!list && card.y < list.y, detail: `card ${JSON.stringify(card)}, list ${JSON.stringify(list)}` };
+    });
     const own = await ownRepositories(t, 'getnao');
     await t.see('The pill `<m> repositories`, forks left out', async () => same(await t.text('#org-count'), `${own.length} repositories`));
     await t.see('The bar full', async () => ({ ok: await t.p.evaluate(() => { const e = document.getElementById('org-progress'); return !e.classList.contains('running') && e.getAttribute('aria-valuenow') === '100'; }) }));
@@ -722,7 +746,9 @@ export const CASES = {
     await t.p.type('#filter', ' before', { delay: 90 }); await t.pause(400);
     const address = t.p.url();
     await t.see('`?repo=…&filter=use+before`, updated as you type', new URL(address).searchParams.get('filter') === 'use before' && new URL(address).searchParams.get('repo') === t.fixture && partial === 'use', `${address} (while typing: ${partial})`);
-    await t.step(2); await t.open(address); await t.p.waitForSelector('#skills li[role="option"]', { timeout: 60_000 });
+    await t.step(2); await t.open(address);
+    // The first skill in the list, aspect-generator, is filtered out (hidden): wait for one shown.
+    await t.p.waitForSelector('#skills li[role="option"]:not([hidden])', { timeout: 60_000 });
     await t.see('The scan and the filter at once: `3 of 7`', async () => ({ ok: (await t.text('#count')) === '3 of 7' && (await t.p.inputValue('#filter')) === 'use before', detail: await t.text('#count') }));
     await t.step(3); await t.filter('');
     await t.see('No `filter=`, `repo=` stays', () => { const u = new URL(t.p.url()); return { ok: !u.searchParams.has('filter') && u.searchParams.get('repo') === t.fixture, detail: t.p.url() }; });
