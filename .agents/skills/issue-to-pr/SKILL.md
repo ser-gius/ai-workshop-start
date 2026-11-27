@@ -17,6 +17,30 @@ locally, the spec's edge cases have tests, the CI build is green.
    or a failing test. Keep the command and its output for the PR.
 4. If the issue is unclear, contradicts the spec, or cannot be reproduced, stop and ask
    in a comment on the issue (with the user's agreement) instead of guessing.
+5. If the issue leaves a decision open (two reasonable behaviours, a name, a default, a
+   scope), do not pick one yourself: ask on Slack, in the private channel
+   `sergius-private-channel`, with `SLACK_BOT_TOKEN`, and wait for the answer in the thread.
+
+   ```sh
+   # the channel's ID (a private channel is not addressable by name)
+   CHANNEL=$(curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+     "https://slack.com/api/conversations.list?types=private_channel&limit=1000" \
+     | jq -r '.channels[] | select(.name=="sergius-private-channel") | .id')
+   # the question: the issue link, the open decision, the options and your recommendation
+   TS=$(jq -n --arg c "$CHANNEL" --arg t "$QUESTION" '{channel:$c, text:$t}' \
+     | curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+         -H 'Content-Type: application/json; charset=utf-8' --data @- \
+         https://slack.com/api/chat.postMessage | jq -r '.ts')
+   # the replies in its thread (the first message is the question itself)
+   curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+     "https://slack.com/api/conversations.replies?channel=$CHANNEL&ts=$TS" \
+     | jq -r '.messages[1:][] | .text'
+   ```
+
+   Check `.ok` in each answer; if it is `false`, report the `.error` (`not_in_channel`,
+   `missing_scope`, …) to the user instead of going on. Poll the thread every minute or two
+   (for example with Monitor and an until-loop) until a human replies; never print the token.
+   Write the answer into the spec in step 3 and quote it in the PR.
 
 ## 2. Branch
 From an up-to-date `main`: `git switch main && git pull && git switch -c <n>-<short-slug>`.
