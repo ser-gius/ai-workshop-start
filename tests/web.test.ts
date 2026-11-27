@@ -851,6 +851,7 @@ async function pageAtWidth(t: TestContext, skills: [name: string, description: s
   const { document } = page;
   const window = document.defaultView!;
   return {
+    doc: document,
     resize(to: number) {
       width = to;
       window.dispatchEvent(new window.Event('resize'));
@@ -898,6 +899,18 @@ test('an unfolded description stays open on a resize', async (t) => {
   assert.equal(page.description('doc-comments'), 'open');
   page.resize(400);
   assert.equal(page.description('doc-comments'), 'open');
+});
+
+test('a resize keeps the keyboard focus on a folded summary', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  page.resize(420);
+  const fold = page.doc.querySelector('details.description')!;
+  const summary = fold.querySelector('summary') as HTMLElement;
+  summary.focus();
+  page.resize(400);
+  assert.equal(page.doc.activeElement, summary, 'still the same summary, still focused');
+  assert.equal(page.doc.querySelector('details.description'), fold, 'the fold is kept, not rebuilt');
+  assert.equal(fold.classList.contains('measuring'), false);
 });
 
 test('a row hidden by the filter while the window narrowed folds once the filter shows it again', async (t) => {

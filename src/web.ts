@@ -280,6 +280,8 @@ const PAGE = `<!doctype html>
   #skills details.description .whole::before { content: '▾ '; }
   #skills details.description .whole { cursor: pointer; }
   #skills details.description[open] summary { display: none; }
+  #skills details.description.measuring summary { display: block; }
+  #skills details.description.measuring summary::before { content: none; }
   #skill:empty { display: none; }
   #skill .card-title h2 { font-family: var(--mono); font-size: 21px; letter-spacing: 0; }
   #skill a { color: var(--accent); word-break: break-all; font-size: 13px; }
@@ -372,23 +374,28 @@ function description(skill) {
 }
 
 // One sentence folds only while it is longer than its two lines: measured on screen, again on a resize
-// or a zoom, and when a filter shows the row. Read all, then write, for one layout however many rows.
+// or a zoom, and when a filter shows the row. A fold is measured where it is, without its ▸ (so a focused
+// summary keeps the focus), and a row is rebuilt only when its state changes. Read all, then write.
 function foldIfClamped() {
   if (!scanned) return;
   const rows = [];
   for (const { skill, item } of scanned.entries) {
     const shown = item.querySelector('.description');
     if (skill.summary !== skill.description || item.hidden || !shown || shown.hidden || shown.open) continue;
-    const short = shown.querySelector('.clamp');
-    if (shown.matches('details')) {
+    const folded = shown.matches('details');
+    if (folded) shown.classList.add('measuring');
+    rows.push({ skill, shown, folded, short: shown.querySelector('.clamp') });
+  }
+  const clamped = rows.map(({ short }) => short.scrollHeight > short.clientHeight + 1);
+  rows.forEach(({ skill, shown, folded, short }, i) => {
+    if (folded) shown.classList.remove('measuring');
+    if (clamped[i] === folded) return;
+    if (folded) {
       const plain = el('div', 'description');
       plain.append(short);
       shown.replaceWith(plain);
-    }
-    rows.push({ skill, short });
-  }
-  const clamped = rows.map(({ short }) => short.scrollHeight > short.clientHeight + 1);
-  rows.forEach(({ skill, short }, i) => clamped[i] && short.parentElement.replaceWith(fold(short, skill.description)));
+    } else shown.replaceWith(fold(short, skill.description));
+  });
 }
 
 function fold(short, text) {
