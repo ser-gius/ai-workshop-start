@@ -675,11 +675,88 @@ test("each skill's day: next to it in the list, `updated <day>` in the selected 
     ['dated', ['2026-09-15', '2026-09-15T23:30:00Z', 'Last updated 2026-09-15 23:30:00 UTC']],
     ['undated', null],
   ]);
+  // A stacked row: the name and its day's chip on one line, then the description under them.
+  const layout = [...document.querySelectorAll('#skills li[role="option"]')].map((li) =>
+    [...li.children].map((child) => (child.matches('.head') ? [...child.children].map((part) => part.className) : child.className)),
+  );
+  assert.deepEqual(layout, [
+    [['name', 'updated'], 'description', 'snippet'],
+    [['name'], 'description', 'snippet'],
+  ]);
   // The first one is selected: its day under its link.
   assert.equal(document.querySelector('#skill .updated')!.textContent, 'updated 2026-09-15');
   (document.querySelectorAll('#skills li[role="option"]')[1] as HTMLElement).click();
   assert.equal(document.querySelector('#skill h2')!.textContent, 'undated');
   assert.equal(document.querySelector('#skill .updated'), null);
+});
+
+test('a skill is a stacked row: its name in bold, its day a chip beside it, its description under them, a line between skills', async () => {
+  const page = await (await fetch(url)).text();
+  assert.match(page, /#skills \.head \{[^}]*display: flex/, 'the name and the day on one line');
+  assert.match(page, /#skills \.name \{[^}]*font: 700 /, 'the name in bold');
+  assert.match(page, /#skills \.head \.updated \{[^}]*border-radius: 999px/, 'the day: a chip');
+  assert.match(page, /#skills \.description, #skills \.snippet \{[^}]*margin-top/, 'the description under them');
+  assert.doesNotMatch(page, /grid-column: 2/, 'not in a column beside the name');
+  assert.match(page, /#skills li\.line::before \{[^}]*border-top: 1px solid var\(--line\)/, 'a thin line between two skills');
+});
+
+/** The shown skills in the list, by name, each with ` |` when a line is drawn above it; a heading as `# <repository>`. */
+function lines(document: Document): string[] {
+  return [...document.querySelectorAll('#skills li:not([hidden])')].map((li) =>
+    li.matches('.group') ? '# ' + li.textContent!.split(' · ')[0] : li.querySelector('.name')!.textContent + (li.classList.contains('line') ? ' |' : ''),
+  );
+}
+
+/** In the page's list: types the filter, clicks a skill, or moves the mouse onto or off it. */
+function acts(document: Document) {
+  const window = document.defaultView!;
+  const item = (name: string) => [...document.querySelectorAll('#skills li[role="option"]')].find((li) => li.querySelector('.name')!.textContent === name)!;
+  return {
+    type(text: string) {
+      (document.getElementById('filter') as HTMLInputElement).value = text;
+      document.getElementById('filter')!.dispatchEvent(new window.Event('input'));
+    },
+    click: (name: string) => (item(name) as HTMLElement).click(),
+    enter: (name: string) => item(name).dispatchEvent(new window.MouseEvent('mouseenter')),
+    leave: (name: string) => item(name).dispatchEvent(new window.MouseEvent('mouseleave')),
+  };
+}
+
+test('the line between two skills: none above the first one shown, with a filter too, nor next to the hovered or selected one', async (t) => {
+  const page = await pageAt(t, FIXTURE);
+  await page.scanned();
+  const { document } = page;
+  const act = acts(document);
+  // aspect-generator selected: no line above it (the first) nor under it.
+  assert.deepEqual(lines(document), ['aspect-generator', 'code-style', 'commits |', 'lint-checks |', 'release-checklist |', 'reviews |', 'run-tests |']);
+  // Hovered: no line above it nor under it; back when the mouse leaves.
+  act.enter('lint-checks');
+  assert.deepEqual(lines(document), ['aspect-generator', 'code-style', 'commits |', 'lint-checks', 'release-checklist', 'reviews |', 'run-tests |']);
+  act.leave('lint-checks');
+  assert.deepEqual(lines(document), ['aspect-generator', 'code-style', 'commits |', 'lint-checks |', 'release-checklist |', 'reviews |', 'run-tests |']);
+  // The filter hides aspect-generator: none above code-style, now the first shown and selected.
+  act.type('use before');
+  assert.deepEqual(lines(document), ['code-style', 'reviews', 'run-tests |']);
+  act.click('run-tests');
+  assert.deepEqual(lines(document), ['code-style', 'reviews |', 'run-tests']);
+  act.enter('code-style');
+  assert.deepEqual(lines(document), ['code-style', 'reviews', 'run-tests']);
+});
+
+test("the line between two skills in an organization: none under a repository's heading, with a filter too", async (t) => {
+  const answer = organizationAnswer('octo', 2, [['one', 3], ['two', 3]]);
+  const names = [['alpha', 'beta-x', 'gamma-x'], ['delta', 'eps-x', 'zeta-x']];
+  answer.repositories.forEach((group, i) => group.skills.forEach((skill, j) => (skill.name = names[i]![j]!)));
+  const page = await pageAt(t, 'github.com/octo', async () => Response.json(answer));
+  await page.scanned();
+  const { document } = page;
+  const act = acts(document);
+  assert.deepEqual(lines(document), ['# octo/one', 'alpha', 'beta-x', 'gamma-x |', '# octo/two', 'delta', 'eps-x |', 'zeta-x |']);
+  // The filter hides each repository's first skill: none above the first match under each heading.
+  act.type('x');
+  assert.deepEqual(lines(document), ['# octo/one', 'beta-x', 'gamma-x', '# octo/two', 'eps-x', 'zeta-x |']);
+  act.click('zeta-x');
+  assert.deepEqual(lines(document), ['# octo/one', 'beta-x', 'gamma-x |', '# octo/two', 'eps-x', 'zeta-x']);
 });
 
 test('the API: a skill whose day is unknown (a directory outside git) has `updated: null`', async (t) => {

@@ -256,14 +256,17 @@ const PAGE = `<!doctype html>
   #skills { list-style: none; margin: 8px 0 0; padding: 0; }
   #skills:empty { display: none; }
   #skills [hidden] { display: none !important; }
-  #skills li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; align-items: baseline; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+  /* A skill: a stacked row, its name and day on one line, its description under them, a line between two skills. */
+  #skills li { position: relative; padding: 10px 12px; border-radius: 8px; cursor: pointer; }
+  #skills li.line::before { content: ''; position: absolute; top: 0; left: 12px; right: 12px; border-top: 1px solid var(--line); }
   #skills li:hover { background: #eeece6; }
   #skills li[aria-selected="true"] { background: var(--tile); box-shadow: inset 3px 0 0 var(--accent); }
-  #skills .name { grid-column: 1; grid-row: 1; font: 15px/1.5 var(--mono); white-space: nowrap; }
-  #skills .description, #skills .snippet { grid-column: 2; grid-row: 1 / span 2; color: var(--muted); font-size: 14px; min-width: 0; }
+  #skills .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+  #skills .name { font: 700 15px/1.5 var(--mono); min-width: 0; overflow-wrap: anywhere; }
+  #skills .description, #skills .snippet { margin-top: 2px; color: var(--muted); font-size: 14px; min-width: 0; }
   #skills .snippet { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* The day it last changed, under its name: the description keeps its width. */
-  #skills .updated { grid-column: 1; grid-row: 2; color: var(--muted); font: 12px/1.4 var(--mono); white-space: nowrap; }
+  /* The day it last changed: a small chip beside the name. */
+  #skills .head .updated { padding: 0 8px; border-radius: 999px; background: #1d1d220d; color: var(--muted); font: 12px/1.6 var(--mono); white-space: nowrap; }
   mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 1px; }
   /* An organization's card: what was scanned, how far, and the repositories with the most skills. */
   #organization { margin-bottom: 24px; max-width: 760px; }
@@ -282,7 +285,7 @@ const PAGE = `<!doctype html>
   .more { color: var(--muted); padding-top: 2px; }
   .more:empty { display: none; }
   /* An organization's skills: a heading per repository. */
-  #skills li.group { display: block; padding: 12px 8px 4px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: default; }
+  #skills li.group { display: block; padding: 12px 12px 4px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: default; }
   #skills li.group:hover { background: none; }
   #skills li.group a { color: inherit; text-decoration: none; }
   #skills li.group a:hover { text-decoration: underline; }
@@ -359,6 +362,7 @@ ${filterCount}
 // The last scan: its repository, and each skill with its item in the list; the selected one.
 let scanned = null;
 let selected = null;
+let hovered = null;
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -431,11 +435,27 @@ function nothingSelected() {
   selected = null;
   for (const item of $('skills').querySelectorAll('li[role="option"]')) item.setAttribute('aria-selected', 'false');
   $('skill').replaceChildren(el('p', 'placeholder', 'Select a skill to read its SKILL.md.'));
+  drawLines();
+}
+
+// The line between two skills shown one after the other, on the second (class "line"): none above the
+// first skill shown, nor under a repository's heading, the rows the filter hides skipped; none next to
+// the hovered or the selected skill.
+function drawLines() {
+  const quiet = (row) => row === hovered || row.getAttribute('aria-selected') === 'true';
+  let previous = null;
+  for (const item of $('skills').children) {
+    if (item.hidden) continue;
+    if (item.getAttribute('role') !== 'option') { previous = null; continue; }
+    item.classList.toggle('line', previous !== null && !quiet(previous) && !quiet(item));
+    previous = item;
+  }
 }
 
 function show(skill, item) {
   selected = { skill, item };
   for (const other of $('skills').querySelectorAll('li[role="option"]')) other.setAttribute('aria-selected', String(other === item));
+  drawLines();
   const view = $('skill');
   const title = el('div', 'card-title');
   title.append($('file-icon').content.cloneNode(true), el('h2', '', skill.name));
@@ -469,11 +489,16 @@ function list(skills, group) {
   for (const skill of skills) {
     const item = el('li');
     item.setAttribute('role', 'option');
-    item.append(el('div', 'name', skill.name));
+    // A stacked row: the name and its day on one line, the description under them.
+    const head = el('div', 'head');
+    head.append(el('div', 'name', skill.name));
+    if (skill.updated) head.append(updated('span', skill.updated));
+    item.append(head);
     if (skill.description) item.append(description(skill));
     item.append(el('div', 'snippet'));
-    if (skill.updated) item.append(updated('div', skill.updated));
     item.addEventListener('click', () => show(skill, item));
+    item.addEventListener('mouseenter', () => { hovered = item; drawLines(); });
+    item.addEventListener('mouseleave', () => { if (hovered === item) hovered = null; drawLines(); });
     $('skills').append(item);
     scanned.entries.push({ skill, item, group });
   }
@@ -554,6 +579,7 @@ function applyFilter() {
     const first = scanned.entries.find(({ item }) => !item.hidden);
     show(first.skill, first.item);
   }
+  drawLines();
 }
 
 // The link of this view: ?repo= for the scan, ?filter= for the filter field while it has words.
@@ -604,6 +630,7 @@ async function scan(repo) {
   $('status').textContent = 'Scanning ' + repo + '…';
   $('warnings').replaceChildren();
   $('skills').replaceChildren();
+  hovered = null;
   $('skill').replaceChildren();
   $('results').hidden = true;
   try {
