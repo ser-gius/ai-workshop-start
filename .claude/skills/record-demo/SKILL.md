@@ -25,6 +25,7 @@ Cases play one after another in a single video, in the order you give them. `--o
 | `filter` | the skill filter on `JetBrains/kotlin`: `gradle`, then `gradle version` | ~12 s |
 | `org` | the `JetBrains` organization: its card, grouped skills, filtering `review` across it | ~35 s |
 | `link` | `?repo=…&filter=gradle` opening the filtered view at once | ~5 s |
+| `history` | offline: two scans, Back to the first, Forward to the second, Back to the empty page | ~20 s |
 
 The GitHub cases scan live repositories (not fixed commits), so counts change over time. The `org`
 scan spends about 15 s on *Scanning…*. Without `GITHUB_TOKEN` it can hit the rate limit.
