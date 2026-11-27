@@ -1,4 +1,8 @@
 // Runs the commands the way the CLI does, with GitHub answering from EXAMPLE below.
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { run } from '../src/commands.ts';
 import { openGitHub, openOrganization, parseGitHubOwnerUrl, parseGitHubUrl } from '../src/core/github.ts';
@@ -208,3 +212,26 @@ export const USER: Recording = {
   'https://api.github.com/repos/octocat/empty': { status: 200, body: { full_name: 'octocat/empty', default_branch: 'main' } },
   [commitOf('octocat/empty')]: { status: 409, body: { message: 'Git Repository is empty.' } },
 };
+
+/**
+ * A `claude` of the test's own, in a directory of its own: it saves its arguments and stdin next to it,
+ * then runs `body` (sh). Returns its path and what it was asked.
+ */
+export function stubClaude(t: Pick<TestContext, 'after'>, body: string) {
+  const dir = mkdtempSync(join(tmpdir(), 'skill-atlas-claude-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const command = join(dir, 'claude');
+  writeFileSync(command, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/args"\ncat > "${dir}/stdin"\n${body}\n`);
+  chmodSync(command, 0o755);
+  const read = (name: string) => {
+    try {
+      return readFileSync(join(dir, name), 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
+  return { dir, command, args: () => read('args')?.trim().split('\n'), stdin: () => read('stdin') };
+}
+
+/** A stub's body that answers this JSON. */
+export const claudeAnswering = (answer: unknown) => `cat <<'EOF'\n${JSON.stringify(answer)}\nEOF`;

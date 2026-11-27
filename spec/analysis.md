@@ -57,6 +57,26 @@ its *committer* date, in UTC (`2026-03-01T01:00:00+02:00` → `2026-02-28T23:00:
   (`github.com/..`, nothing asked of GitHub), and an answer from GitHub without a `login`
 - A rejected token, the rate limit, GitHub unreachable → the whole scan stops: a clear message, exit code 1
 
+## Topics
+The skills **grouped by topic**, so a long list reads at a glance: a handful of topics, each a short **title**
+and its skills; *every skill in exactly one*. An organization: one set of topics across all its repositories.
+- A **tiny Claude model**, Haiku: `claude -p --model haiku`, the prompt on stdin, in the temporary directory;
+  *no tools*, no MCP servers, no session saved (`--tools "" --strict-mcp-config --no-session-persistence`): the
+  descriptions are the repository's text;
+  it gets each skill's name and description once, and answers in JSON: `{"topics": [{"title", "skills": [<name>]}]}`
+- Its answer, checked: a name it made up → dropped; a skill in two topics → the first; a topic with no skill
+  left, or no title → dropped; two topics with one title (ignoring case) → one; a skill it left out → `Other`, last.
+  The same name in two repositories: both skills go where the name goes
+- `claude` missing, failing (exit code not 0), taking more than *30 s*, or an answer with no topic (not JSON,
+  not that shape) → the **heuristic**, no warning
+- The **heuristic**: skills that share a *word in their names* (split on anything but letters and digits;
+  `test`, `tests`, `testing` are one word: a plural `s` and `-ing` off). The word most skills share first,
+  its skills a topic titled by the word as they use it most (`testing`, `writing-tests`, `driver-ui-tests` → `tests`);
+  then the next among the skills left, a tie by the word in alphabetical order; *at most 6*, while two skills
+  share one; the rest → `Other`, last
+- No skills → no topics, and the model is not asked
+- Only the web view asks for topics ([web](web.md#topics)); the CLI does not
+
 ## What is a project skill?
 `<root>/<name>/SKILL.md`, where `<root>` is a folder named `skills`:
 `.agents/skills`, `.claude/skills`, `.github/skills`, `agent/skills`,

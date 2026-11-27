@@ -5,6 +5,7 @@ import { run } from './commands.ts';
 import { openGitHub, openOrganization, parseGitHubOwnerUrl, parseGitHubUrl, userRepositories } from './core/github.ts';
 import type { OrganizationSource, Source } from './core/scan.ts';
 import { openDirectory } from './local.ts';
+import { topicsOf } from './topics.ts';
 import { serve } from './web.ts';
 
 const token = process.env.GITHUB_TOKEN || undefined;
@@ -23,7 +24,7 @@ if (args[0] === 'serve') {
     process.exitCode = 1;
   } else {
     try {
-      const { url } = await serve({ open, repositories: () => userRepositories({ fetch, token }), port });
+      const { url } = await serve({ open, repositories: () => userRepositories({ fetch, token }), topics: (skills) => topicsOf(skills), port });
       console.log(`Skill Atlas at ${url}`);
     } catch (error) {
       console.error(`Cannot start the web view: ${error instanceof Error ? error.message : String(error)}`);

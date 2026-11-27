@@ -8,13 +8,19 @@ import { AtlasError } from './core/errors.ts';
 import type { UserRepositories } from './core/github.ts';
 import { firstSentence, skillLink } from './core/model.ts';
 import { isOrganization, scan, scanOrganization, type OrganizationSource, type ScanResult, type Source } from './core/scan.ts';
+import { heuristicTopics, type Topic, type Topics, type TopicSkill } from './core/topics.ts';
 
 export type WebOptions = {
   /** Opens what the user typed into the field: a repository, or an organization's repositories. */
   open(input: string): Promise<Source | OrganizationSource>;
   /** The user's repositories, suggested in the field; none without it. */
   repositories?(): Promise<UserRepositories>;
+  /** The skills by topic (the CLI asks a model); the heuristic's by default. */
+  topics?(skills: TopicSkill[]): Promise<Topics>;
 };
+
+/** The topics in GET /api/scan's answer: each skill, by id, in exactly one; and who made them. */
+export type TopicsAnswer = { topics: Topic[]; topicsBy: Topics['by'] };
 
 /** What GET /api/repositories answers: the suggestions, a hint without a token, or GitHub's failure. */
 export type RepositoriesAnswer = UserRepositories & { error?: string };
@@ -39,7 +45,7 @@ export type RepositoryAnswer = {
 };
 
 /** What GET /api/scan answers for a repository: its skills, and warnings. */
-export type ScanAnswer = RepositoryAnswer & { warnings: string[] };
+export type ScanAnswer = RepositoryAnswer & TopicsAnswer & { warnings: string[] };
 
 /** What GET /api/scan answers for an organization: the repositories with skills, grouped, and warnings. */
 export type OrganizationAnswer = {
@@ -47,7 +53,7 @@ export type OrganizationAnswer = {
   organization: { id: string; url: string; repositories: number };
   repositories: RepositoryAnswer[];
   warnings: string[];
-};
+} & TopicsAnswer;
 
 /** A repository's skills as the page shows them. */
 function repositoryAnswer({ repository, skills }: ScanResult): RepositoryAnswer {
@@ -67,7 +73,15 @@ function repositoryAnswer({ repository, skills }: ScanResult): RepositoryAnswer 
   };
 }
 
-export function createWebServer({ open, repositories }: WebOptions): Server {
+const byHeuristic = async (skills: TopicSkill[]): Promise<Topics> => ({ by: 'heuristic', topics: skills.length ? heuristicTopics(skills) : [] });
+
+/** The answer's skills by topic; across every repository for an organization. */
+async function topicsAnswer(skills: TopicSkill[], topics: WebOptions['topics'] = byHeuristic): Promise<TopicsAnswer> {
+  const answer = await topics(skills.map(({ id, name, description }) => ({ id, name, description })));
+  return { topics: answer.topics, topicsBy: answer.by };
+}
+
+export function createWebServer({ open, repositories, topics }: WebOptions): Server {
   return createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     const send = (status: number, type: string, body: string) => {
@@ -100,14 +114,17 @@ export function createWebServer({ open, repositories }: WebOptions): Server {
       let answer: ScanAnswer | OrganizationAnswer;
       if (isOrganization(opened)) {
         const result = await scanOrganization(opened);
+        const grouped = result.results.map(repositoryAnswer);
         answer = {
           organization: { ...result.organization, repositories: result.repositories },
-          repositories: result.results.map(repositoryAnswer),
+          repositories: grouped,
+          ...(await topicsAnswer(grouped.flatMap((group) => group.skills), topics)),
           warnings: result.warnings,
         };
       } else {
         const result = await scan(opened);
-        answer = { ...repositoryAnswer(result), warnings: result.warnings };
+        const repository = repositoryAnswer(result);
+        answer = { ...repository, ...(await topicsAnswer(repository.skills, topics)), warnings: result.warnings };
       }
       send(200, 'application/json', JSON.stringify(answer));
     } catch (error) {
@@ -175,6 +192,13 @@ export function filterSnippet(description: string, filter: string): string | nul
 export function filterCount(shown: number, total: number, filter: string): string {
   if (filterWords(filter).length) return shown + ' of ' + total;
   return total + (total === 1 ? ' skill' : ' skills');
+}
+
+/** The skill names a topic's card shows: the first `max` once each, then `+<n>` for the rest; '' when none is left. */
+export function topicChips(names: string[], max = 3): { chips: string[]; more: string } {
+  const unique = names.filter((name, at) => names.indexOf(name) === at);
+  const rest = unique.length - Math.min(unique.length, max);
+  return { chips: unique.slice(0, max), more: rest ? '+' + rest : '' };
 }
 
 /** Starts the server on 127.0.0.1 and resolves with its address once it listens. */
@@ -280,6 +304,14 @@ const PAGE = `<!doctype html>
   #skills details.description .whole::before { content: '▾ '; }
   #skills details.description .whole { cursor: pointer; }
   #skills details.description[open] summary { display: none; }
+  /* The skills by topic, above the list: a card per topic, its title, then its first skills as chips on one row. */
+  #topics { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+  #topics:empty { display: none; }
+  #topics .topic { padding: 12px 14px; border-radius: 12px; }
+  #topics .topic-title { font-weight: 700; font-size: 15px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #topics .chips { display: flex; gap: 6px; margin-top: 8px; overflow: hidden; white-space: nowrap; }
+  #topics .chip { padding: 1px 8px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); font: 12px/1.6 var(--mono); overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+  #topics .chip-more { padding: 1px 2px; font: 12px/1.6 var(--mono); color: var(--muted); flex: none; }
   #skill:empty { display: none; }
   #skill .card-title h2 { font-family: var(--mono); font-size: 21px; letter-spacing: 0; }
   #skill a { color: var(--accent); word-break: break-all; font-size: 13px; }
@@ -313,6 +345,7 @@ const PAGE = `<!doctype html>
   </div>
 </section>
 <main id="results" hidden>
+  <ul id="topics" aria-label="Topics"></ul>
   <section id="list" class="card">
     <div class="card-title">
       <span class="tile"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg></span>
@@ -338,6 +371,7 @@ ${matchesFilter}
 ${highlightRanges}
 ${filterSnippet}
 ${filterCount}
+${topicChips}
 
 // The last scan: its repository, and each skill with its item in the list; the selected one.
 let scanned = null;
@@ -486,6 +520,27 @@ function organizationScanned(answer) {
   $('org-more').textContent = more ? '+' + more + ' more' : '';
 }
 
+// A card per topic, above the list: its title, its first skills' names as chips, then +<n> for the rest.
+function topics(answer, skills) {
+  const names = new Map(skills.map((skill) => [skill.id, skill.name]));
+  $('topics').replaceChildren(...(answer.topics || []).map((topic) => {
+    const card = el('li', 'topic card');
+    const { chips, more } = topicChips(topic.skills.map((id) => names.get(id)).filter(Boolean));
+    const row = el('div', 'chips');
+    for (const name of chips) {
+      const chip = el('code', 'chip', name);
+      chip.title = name;
+      // Short of room, a long name gives way first: a short one stays whole.
+      chip.style.flexShrink = String(name.length);
+      row.append(chip);
+    }
+    if (more) row.append(el('span', 'chip-more', more));
+    card.append(el('div', 'topic-title', topic.title), row);
+    card.title = topic.skills.map((id) => names.get(id)).filter(Boolean).join(', ');
+    return card;
+  }));
+}
+
 // Narrows the list to the skills that match the filter field, highlighting the matches; no new scan.
 // While a word is in the description, the row shows the snippet around it instead.
 function applyFilter() {
@@ -545,6 +600,7 @@ async function scan(repo) {
   $('warnings').replaceChildren();
   $('skills').replaceChildren();
   $('skill').replaceChildren();
+  $('topics').replaceChildren();
   $('results').hidden = true;
   try {
     const response = await fetch('/api/scan?repo=' + encodeURIComponent(repo));
@@ -572,9 +628,11 @@ async function scan(repo) {
         scanned.groups.push(heading);
         list(group.skills, heading);
       }
+      topics(answer, answer.repositories.flatMap((group) => group.skills));
     } else {
       scanned = { id: answer.repository.id, entries: [], groups: [], summary: answer.repository.id + ' · ' + count(answer.skills.length, 'skill') };
       list(answer.skills, null);
+      topics(answer, answer.skills);
     }
     applyFilter();
   } catch (error) {
