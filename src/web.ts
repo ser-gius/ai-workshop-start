@@ -282,6 +282,8 @@ const PAGE = `<!doctype html>
   #skills details.description .whole::before { content: '▾ '; }
   #skills details.description .whole { cursor: pointer; }
   #skills details.description[open] summary { display: none; }
+  #skills details.description.measuring summary { display: block; }
+  #skills details.description.measuring summary::before { content: none; }
   #skill:empty { display: none; }
   #skill .card-title h2 { font-family: var(--mono); font-size: 21px; letter-spacing: 0; }
   #skill a { color: var(--accent); word-break: break-all; font-size: 13px; }
@@ -373,10 +375,29 @@ function description(skill) {
   return plain;
 }
 
-// One sentence that is longer than its two lines folds too, once it is on screen and measured.
-function foldIfClamped(item, skill) {
-  const short = item.querySelector('div.description > .clamp');
-  if (short && short.scrollHeight > short.clientHeight + 1) short.parentElement.replaceWith(fold(short, skill.description));
+// One sentence folds only while it is longer than its two lines: measured on screen, again on a resize
+// or a zoom, and when a filter shows the row. A fold is measured where it is, without its ▸ (so a focused
+// summary keeps the focus), and a row is rebuilt only when its state changes. Read all, then write.
+function foldIfClamped() {
+  if (!scanned) return;
+  const rows = [];
+  for (const { skill, item } of scanned.entries) {
+    const shown = item.querySelector('.description');
+    if (skill.summary !== skill.description || item.hidden || !shown || shown.hidden || shown.open) continue;
+    const folded = shown.matches('details');
+    if (folded) shown.classList.add('measuring');
+    rows.push({ skill, shown, folded, short: shown.querySelector('.clamp') });
+  }
+  const clamped = rows.map(({ short }) => short.scrollHeight > short.clientHeight + 1);
+  rows.forEach(({ skill, shown, folded, short }, i) => {
+    if (folded) shown.classList.remove('measuring');
+    if (clamped[i] === folded) return;
+    if (folded) {
+      const plain = el('div', 'description');
+      plain.append(short);
+      shown.replaceWith(plain);
+    } else shown.replaceWith(fold(short, skill.description));
+  });
 }
 
 function fold(short, text) {
@@ -441,7 +462,6 @@ function list(skills, group) {
     if (skill.updated) item.append(updated('div', skill.updated));
     item.addEventListener('click', () => show(skill, item));
     $('skills').append(item);
-    foldIfClamped(item, skill);
     scanned.entries.push({ skill, item, group });
   }
 }
@@ -514,6 +534,7 @@ function applyFilter() {
   $('count').textContent = filterCount(shown, total, filter);
   $('status').textContent = shown === total ? scanned.summary : scanned.id + ' · ' + shown + ' of ' + count(total, 'skill');
   $('no-match').textContent = total && !shown ? 'No skills match "' + filter.trim() + '"' : '';
+  foldIfClamped();
   if (!shown) {
     nothingSelected();
   } else if (!selected || selected.item.hidden) {
@@ -621,6 +642,9 @@ $('form').addEventListener('submit', (event) => {
   updateLink(repo);
   scan(repo);
 });
+
+// A narrower window, or a zoom, can cut a sentence that fitted; a wider one, let it fit.
+window.addEventListener('resize', foldIfClamped);
 
 $('filter').addEventListener('input', () => {
   applyFilter();

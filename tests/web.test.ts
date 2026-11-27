@@ -961,6 +961,104 @@ test('a sentence cut at two lines folds: the skills are on screen when it is mea
   assert.equal(item.querySelector('details.description .whole')!.textContent, sentence);
 });
 
+/**
+ * jsdom has no layout: a description's clamp, longer than 40 characters, is three lines high in a window
+ * narrower than 600 px, two lines in a wider one; nothing while hidden. `resize` sets the width and tells the page.
+ */
+async function pageAtWidth(t: TestContext, skills: [name: string, description: string][]) {
+  let width = 1280;
+  const layout = (window: JSDOM['window']) => {
+    const offScreen = (node: Element) => !!node.closest('[hidden]');
+    const lines = (node: Element, high: number) => (offScreen(node) ? 0 : node.matches('.clamp') && node.textContent!.length > 40 && width < 600 ? high : 40);
+    Object.defineProperty(window.HTMLElement.prototype, 'scrollHeight', { get(this: Element) { return lines(this, 60); } });
+    Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { get(this: Element) { return lines(this, 40); } });
+  };
+  const answer = organizationAnswer('octo', 1, [['one', skills.length]]);
+  answer.repositories[0].skills.forEach((skill, i) => Object.assign(skill, { name: skills[i][0], description: skills[i][1], summary: skills[i][1] }));
+  const page = await pageAt(t, 'github.com/octo', async () => Response.json(answer), layout);
+  await page.scanned();
+  const { document } = page;
+  const window = document.defaultView!;
+  return {
+    doc: document,
+    resize(to: number) {
+      width = to;
+      window.dispatchEvent(new window.Event('resize'));
+    },
+    filter(words: string) {
+      const field = document.getElementById('filter') as HTMLInputElement;
+      field.value = words;
+      field.dispatchEvent(new window.Event('input'));
+    },
+    /** A skill's description: `folded`, `open` or `plain`. */
+    description(name: string) {
+      const item = [...document.querySelectorAll('#skills li[role="option"]')].find((li) => li.querySelector('.name')!.textContent === name)!;
+      const fold = item.querySelector('details.description') as HTMLDetailsElement | null;
+      return fold ? (fold.open ? 'open' : 'folded') : 'plain';
+    },
+    unfold(name: string) {
+      const item = [...document.querySelectorAll('#skills li[role="option"]')].find((li) => li.querySelector('.name')!.textContent === name)!;
+      (item.querySelector('details.description') as HTMLDetailsElement).open = true;
+    },
+  };
+}
+
+const LONG = 'Checks that every public function in the module has a short and useful doc comment';
+
+test('a sentence that fitted is cut at two lines once the window is narrower: it folds', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  assert.equal(page.description('doc-comments'), 'plain', 'wide: two lines, no fold');
+  page.resize(420);
+  assert.equal(page.description('doc-comments'), 'folded', 'narrow (or zoomed in): cut, so a fold');
+});
+
+test('a folded sentence that fits again once the window is wider: the fold goes', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  page.resize(420);
+  assert.equal(page.description('doc-comments'), 'folded');
+  page.resize(1280);
+  assert.equal(page.description('doc-comments'), 'plain', 'wide again: nothing more to show');
+});
+
+test('an unfolded description stays open on a resize', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  page.resize(420);
+  page.unfold('doc-comments');
+  page.resize(1280);
+  assert.equal(page.description('doc-comments'), 'open');
+  page.resize(400);
+  assert.equal(page.description('doc-comments'), 'open');
+});
+
+test('a resize keeps the keyboard focus on a folded summary', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  page.resize(420);
+  const fold = page.doc.querySelector('details.description')!;
+  const summary = fold.querySelector('summary') as HTMLElement;
+  summary.focus();
+  page.resize(400);
+  assert.equal(page.doc.activeElement, summary, 'still the same summary, still focused');
+  assert.equal(page.doc.querySelector('details.description'), fold, 'the fold is kept, not rebuilt');
+  assert.equal(fold.classList.contains('measuring'), false);
+});
+
+test('a row hidden by the filter while the window narrowed folds once the filter shows it again', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG], ['other', 'Short.']]);
+  page.filter('other');
+  page.resize(420);
+  page.filter('');
+  assert.equal(page.description('doc-comments'), 'folded');
+  assert.equal(page.description('other'), 'plain', 'a short sentence: never a fold');
+});
+
+test('a sentence shown as a snippet while the window narrowed folds once the filter is cleared', async (t) => {
+  const page = await pageAtWidth(t, [['doc-comments', LONG]]);
+  page.filter('module');
+  page.resize(420);
+  page.filter('');
+  assert.equal(page.description('doc-comments'), 'folded');
+});
+
 test('no skills: the SKILL.md view says how to read one', async (t) => {
   const page = await pageAt(t, 'github.com/empty-org', async () => Response.json(organizationAnswer('empty-org', 4, [])));
   await page.scanned();
