@@ -123,7 +123,10 @@ test.describe('narrow: a 375 px wide screen', () => {
   const phone = { width: 375, height: 667 };
   test.use({ viewport: phone }); // the video stays 1280×800, the phone in its corner
 
-  /** The page does not scroll sideways, and every given element ends inside the header card. */
+  /**
+   * The header causes no sideways scroll, and every given element ends inside the header card.
+   * Only the fixture is scanned: its skill names are short, as the list's long names still widen the page (spec/web.md).
+   */
   async function fits(page: Page, ...selectors: string[]) {
     const { width, scrollWidth, card, rights } = await page.evaluate((selectors) => {
       const right = (e: Element) => e.getBoundingClientRect().right;

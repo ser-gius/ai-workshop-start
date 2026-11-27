@@ -6,9 +6,11 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 ## Page
 - A **field** for a repository link: a GitHub URL, a GitHub organization URL, or a local directory
 - The **header** on one row: `Skill Atlas`, the field and its *Scan* button, then what was scanned (`JetBrains/kotlin · 6 skills`)
-- A **narrow screen** (a phone, 375 px wide): the header fits the window, no sideways scroll; the field
-  shrinks, *Scan* inside the card, and a long name of what was scanned wraps inside the card
-  (`JetBrains/intellij-community-plugins · 128 skills`, on two lines). Wider than 860 px it stays on one line
+- A **narrow screen** (a phone, 375 px wide): the header fits the window, the header causes no sideways
+  scroll; the field shrinks, *Scan* inside the card, and a long name of what was scanned wraps inside the card
+  (`JetBrains/intellij-community-plugins · 128 skills`, on two lines). Wider than 860 px it stays on one line.
+  Still open: a long skill name in the list (mono, on one line) widens the page
+  (`JetBrains/kotlin` at 375 px: 665 px wide); PR #23 restyles that list
 - The skills and their **filter** show only *once a scan has answered*: before a scan, while it runs, and on
   a failure, only the header (and the organization's card while it scans)
 - No skill selected (no match, or no skills) → the SKILL.md view says `Select a skill to read its SKILL.md.`
