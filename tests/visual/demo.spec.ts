@@ -63,7 +63,7 @@ test('scan: a repository, picking a skill, unfolding a description', async ({ pa
   await expect(page.locator('#skill .updated')).toHaveText('updated 2026-04-02');
   await expect(page).toHaveScreenshot('scan.png');
 
-  await skills(page).nth(2).click();
+  await skills(page).nth(2).locator('.name').click(); // the name: a click on a fold opens it, and does not select
   await expect(skills(page).nth(2)).toHaveAttribute('aria-selected', 'true');
   await expect(page).toHaveScreenshot('scan-picked.png');
 
