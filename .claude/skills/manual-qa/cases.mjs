@@ -663,7 +663,9 @@ export const CASES = {
     await t.p.type('#filter', ' before', { delay: 90 }); await t.pause(400);
     const address = t.p.url();
     await t.see('`?repo=…&filter=use+before`, updated as you type', new URL(address).searchParams.get('filter') === 'use before' && new URL(address).searchParams.get('repo') === t.fixture && partial === 'use', `${address} (while typing: ${partial})`);
-    await t.step(2); await t.open(address); await t.p.waitForSelector('#skills li[role="option"]', { timeout: 60_000 });
+    await t.step(2); await t.open(address);
+    // The first skill in the list, aspect-generator, is filtered out (hidden): wait for one shown.
+    await t.p.waitForSelector('#skills li[role="option"]:not([hidden])', { timeout: 60_000 });
     await t.see('The scan and the filter at once: `3 of 7`', async () => ({ ok: (await t.text('#count')) === '3 of 7' && (await t.p.inputValue('#filter')) === 'use before', detail: await t.text('#count') }));
     await t.step(3); await t.filter('');
     await t.see('No `filter=`, `repo=` stays', () => { const u = new URL(t.p.url()); return { ok: !u.searchParams.has('filter') && u.searchParams.get('repo') === t.fixture, detail: t.p.url() }; });
