@@ -59,8 +59,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('a long skill name wraps in its half of the row; its description keeps the other half', async ({ page }) => {
+  const long = { ...skill(LONG_NAME, 'Its description has no room left beside the name.'), copies: [DEEP + 'SKILL.md'],
+    link: 'https://github.com/octo/long/blob/main' + DEEP + 'SKILL.md' };
   await answering(page, { repository: repository('octo/long'), warnings: [],
-    skills: [skill(LONG_NAME, 'Its description has no room left beside the name.'), skill('commits', 'Write commit messages.')] } satisfies ScanAnswer);
+    skills: [long, skill('commits', 'Write commit messages.')] } satisfies ScanAnswer);
   await scan(page, 'https://github.com/octo/long');
   await expect(page.locator('#count')).toHaveText('2 skills');
 
@@ -74,8 +76,12 @@ test('a long skill name wraps in its half of the row; its description keeps the 
   // A short name keeps its own width, on one line.
   const short = page.locator('#skills li[role="option"]').nth(1).locator('.name');
   expect((await short.boundingBox())!.height).toBeLessThan(30);
-  // The selected skill's card: its name wraps too.
+  // The selected skill's card: its name, its link and `also in <paths>` wrap too.
   await inside(page, '#skill h2', '#skill');
+  await expect(page.locator('#skill .copies')).toContainText(DEEP);
+  await inside(page, '#skill .copies', '#skill');
+  await expect(page.locator('#skill a').first()).toHaveAttribute('href', long.link);
+  await inside(page, '#skill a', '#skill');
   await noSidewaysScroll(page);
 });
 
