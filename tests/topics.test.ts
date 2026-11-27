@@ -47,8 +47,8 @@ test('the model: a made-up name dropped, a skill in two topics in the first, one
   );
   assert.deepEqual(topics, [
     { title: 'Tests', skills: ids('run-tests') },
-    // `tools` is `Tools`, ignoring case.
-    { title: 'Tools', skills: ids('lint', 'format') },
+    // `tools` is `Tools`, ignoring case; its skills in the list's order.
+    { title: 'Tools', skills: ids('format', 'lint') },
     // Left out (or only under a topic with no title): Other, last.
     { title: OTHER, skills: ids('commits', 'stray') },
   ]);
@@ -59,6 +59,11 @@ test('the model: its own Other topic, not last, takes the skills it left out and
   assert.deepEqual(parseTopics(answer, skills('a', 'commits', 'stray')), [
     { title: 'Git', skills: ids('commits') },
     { title: 'other', skills: ids('a', 'stray') },
+  ]);
+  // The skills left out join it in the list's order.
+  assert.deepEqual(parseTopics(answer, skills('0-first', 'a', 'commits')), [
+    { title: 'Git', skills: ids('commits') },
+    { title: 'other', skills: ids('0-first', 'a') },
   ]);
   // Its Other with nothing left out moves last too.
   assert.deepEqual(parseTopics(answer, skills('a', 'commits')), [

@@ -65,7 +65,8 @@ and its skills; *every skill in exactly one*. An organization: one set of topics
   descriptions are the repository's text;
   it gets each skill's name and description once, and answers in JSON: `{"topics": [{"title", "skills": [<name>]}]}`
 - Its answer, checked: a name it made up → dropped; a skill in two topics → the first; a topic with no skill
-  left, or no title → dropped; two topics with one title (ignoring case) → one; a skill it left out → `Other`, last;
+  left, or no title → dropped; two topics with one title (ignoring case) → one;
+  a topic's skills, merged or not, in the list's order; a skill it left out → `Other`, last;
   a topic of its own titled `Other` (any case) → the skills it left out join it, and it moves last.
   The same name in two repositories: both skills go where the name goes
 - `claude` missing, failing (exit code not 0), taking more than *30 s*, or an answer with no topic (not JSON,

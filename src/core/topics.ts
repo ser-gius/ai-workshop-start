@@ -65,6 +65,9 @@ export function parseTopics(answer: string, skills: TopicSkill[]): Topic[] | und
   if (!topics.length) return undefined;
   const rest = skills.filter((skill) => !taken.has(skill.id)).map((skill) => skill.id);
   if (rest.length) add(topics, OTHER, rest);
+  // Merged topics (one title twice, the model's Other and the skills left out) in the list's order too.
+  const order = new Map(skills.map((skill, index) => [skill.id, index]));
+  for (const topic of topics) topic.skills.sort((a, b) => order.get(a)! - order.get(b)!);
   // The model's own `Other` too (any case): last, with the skills it left out.
   const other = topics.findIndex((topic) => topic.title.toLowerCase() === OTHER.toLowerCase());
   if (other !== -1) topics.push(...topics.splice(other, 1));
