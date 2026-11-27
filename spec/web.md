@@ -34,6 +34,9 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
 - **Suggestions** in the field: the user's GitHub repositories; picking one fills in its URL
   - Without `GITHUB_TOKEN`: none, and a hint to set it; a GitHub failure → its *clear message*, the page still works
 - Warnings under the field; an unreachable repository → its *clear message*, no skills
+  - A link too long for a request (over Node's 16 KB, `https://github.com/` and 17000 `a`) → `The link is too long`
+    - Its link too (reloaded or shared): the page, with that message, not the API's JSON
+  - An answer that is not JSON → what the server answered, `The server answered 502 Bad Gateway`, never a parser's error
 - `?repo=<link>` scans at once, so a scan has a link of its own
 - The **history**: each new scan's link is an entry of its own, like any link opened; *Back* scans the
   link before, with its filter, *Forward* the next one (afresh: nothing is stored)
@@ -79,6 +82,9 @@ A **filter field** above the skill list narrows it *as you type*, no new scan
 `description` (on one line), `summary` (its first sentence), `path`, `link`, `copies`, `text`, the SKILL.md,
 and `updated`, the time it last changed (ISO 8601 in UTC, `2026-11-20T09:14:03Z`), `null` without a date
 - No link, or an unreachable repository → 400 `{ error }`
+- A link too long for a request (its line and headers over 16 KB: Node rejects it before the server sees it)
+  → 431 `{ error: 'The link is too long' }`; the page's own link (`/?repo=`, not `/api/`) that long → 431 with the page
+  - Any other request Node rejects → its usual answer, no body (400, 408, 413)
 - An organization → `{ organization, repositories, warnings }`: `organization` has `id`, `url` and `repositories`
   (how many, forks left out); `repositories` lists those with skills, each `{ repository, skills }` as above
 

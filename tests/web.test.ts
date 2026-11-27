@@ -4,6 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { request } from 'node:http';
+import { connect, type AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test, type TestContext } from 'node:test';
@@ -11,7 +12,7 @@ import { JSDOM } from 'jsdom';
 import { createBrowserBackend } from '../src/browser.ts';
 import { userRepositories, type Fetch } from '../src/core/github.ts';
 import { replay } from '../src/core/replay.ts';
-import { filterCount, filterSnippet, highlightRanges, matchesFilter, serve, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
+import { createWebServer, filterCount, filterSnippet, highlightRanges, matchesFilter, serve, type OrganizationAnswer, type RepositoriesAnswer, type ScanAnswer, type WebOptions } from '../src/web.ts';
 import { CLI, EXAMPLE_COMMIT, EXAMPLE_UPDATED, FIXTURE, lockedFixture, open, USER_REPOSITORIES, userReposUrl } from './helpers.ts';
 
 // The token goes to GitHub with every /user/repos request.
@@ -1215,4 +1216,87 @@ test("an organization: its card shows while it scans, the filter and the skills 
   await page.scanned();
   assert.equal(page.card().hidden, false);
   assert.equal(results(), false, 'answered: the filter and the skills');
+});
+
+// A link longer than Node's 16 KB for a request's line and headers never reaches the server's handler.
+const TOO_LONG = `https://github.com/${'a'.repeat(17000)}`;
+
+test('a link too long for a request → 431 with a clear message', async () => {
+  assert.deepEqual(await scan(TOO_LONG), { status: 431, body: { error: 'The link is too long' } });
+});
+
+test('a malformed request → 400, as without the handler for a too long one', async () => {
+  const socket = connect(new URL(url).port as unknown as number, '127.0.0.1');
+  socket.end('NOT HTTP\r\n\r\n');
+  let answer = '';
+  for await (const chunk of socket) answer += chunk;
+  assert.match(answer, /^HTTP\/1\.1 400 Bad Request\r\n/);
+});
+
+/** What a raw socket to this server gets back for these bytes, until the server closes it. */
+async function raw(port: number, bytes: string, end = true): Promise<string> {
+  const socket = connect(port, '127.0.0.1');
+  if (end) socket.end(bytes);
+  else socket.write(bytes);
+  let answer = '';
+  for await (const chunk of socket) answer += chunk;
+  return answer;
+}
+
+test('a request that never finishes its headers → 408, as without the handler for a too long one', async (t) => {
+  const other = createWebServer({ open });
+  // Short timeouts, read when it listens (connectionsCheckingInterval is not in Server's types).
+  Object.assign(other, { headersTimeout: 300, requestTimeout: 600, connectionsCheckingInterval: 50 });
+  await new Promise<void>((resolve) => other.listen(0, '127.0.0.1', resolve));
+  t.after(() => other.close());
+  const { port } = other.address() as AddressInfo;
+  const answer = await raw(port, `GET / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n`, false);
+  assert.equal(answer, 'HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n');
+});
+
+test('a chunk extension over 16 KB → 413, as without the handler for a too long one', async () => {
+  const port = Number(new URL(url).port);
+  const answer = await raw(
+    port,
+    `GET /api/scan?repo=${encodeURIComponent(FIXTURE)} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nTransfer-Encoding: chunked\r\n\r\n` +
+      `1;${'a'.repeat(20000)}\r\n`,
+  );
+  assert.equal(answer, 'HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\n\r\n');
+});
+
+test("a link too long, reloaded: 431 with the page, which shows its clear message", async (t) => {
+  const link = `${url}?repo=${encodeURIComponent(TOO_LONG)}`;
+  const response = await fetch(link);
+  assert.equal(response.status, 431);
+  assert.match(response.headers.get('content-type') ?? '', /^text\/html/);
+  const html = await response.text();
+  assert.equal(html, await (await fetch(url)).text(), 'the page itself');
+  const dom = new JSDOM(html, {
+    url: link,
+    runScripts: 'dangerously',
+    beforeParse(window) {
+      (window as unknown as { fetch: typeof fetch }).fetch = (path) => fetch(new URL(String(path), url));
+    },
+  });
+  t.after(() => dom.window.close());
+  const status = dom.window.document.getElementById('status')!;
+  for (let i = 0; i < 200 && /^Scanning /.test(status.textContent ?? ''); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(status.textContent, 'The link is too long');
+  assert.equal(status.className, 'error');
+});
+
+test('a link too long: the page shows its clear message, no skills', async (t) => {
+  const page = await pageAt(t, TOO_LONG);
+  await page.scanned();
+  const status = page.document.getElementById('status')!;
+  assert.equal(status.textContent, 'The link is too long');
+  assert.equal(status.className, 'error');
+  assert.equal((page.document.getElementById('results') as HTMLElement).hidden, true, 'no skills');
+});
+
+test('an answer that is not JSON: the page says what the server answered', async (t) => {
+  const page = await pageAt(t, FIXTURE, async () => new Response('', { status: 502, statusText: 'Bad Gateway' }));
+  await page.scanned();
+  assert.equal(page.document.getElementById('status')!.textContent, 'The server answered 502 Bad Gateway');
+  assert.equal((page.document.getElementById('results') as HTMLElement).hidden, true, 'no skills');
 });
