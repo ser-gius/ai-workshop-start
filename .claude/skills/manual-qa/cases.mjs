@@ -409,7 +409,7 @@ export const CASES = {
     await t.step(2); await t.click('reviews');
     await t.see('`also in .claude/skills/reviews/SKILL.md`', async () => same(await t.text('#skill .copies'), 'also in .claude/skills/reviews/SKILL.md'));
   },
-  async 'WEB-32'(t) {
+  async 'WEB-33'(t) {
     const s = await t.serve(); await t.open(s.url); await t.scan(t.fixture);
     const focused = () => t.p.evaluate(() => document.activeElement.closest('li[role="option"]')?.querySelector('.name').textContent ?? document.activeElement.tagName);
     const ring = () => t.p.evaluate(() => { const a = document.activeElement; return a.matches(':focus-visible') && getComputedStyle(a).outlineStyle !== 'none'; });
@@ -421,10 +421,14 @@ export const CASES = {
     await t.see('`release-checklist` selected, its SKILL.md shows', async () => ({ ok: (await t.selected()) === 'release-checklist' && (await t.text('#skill pre.skill-md')).includes('release-checklist') }));
     await t.step(4);
     const top = () => t.p.evaluate(() => scrollY);
-    const before = await top();
     await t.p.keyboard.press('End'); await t.pause(300);
     const end = await focused();
-    await t.p.keyboard.press('ArrowUp'); await t.pause(300); await t.p.keyboard.press(' '); await t.pause(400);
+    // End brings the last skill into view, as focusing it must: at 800 px that scrolls to the bottom, where
+    // Space's own default (a page down) would show nothing. Back to the top, so a scroll by Space is seen.
+    await t.p.keyboard.press('ArrowUp'); await t.pause(300);
+    await t.p.evaluate(() => scrollTo(0, 0)); await t.pause(200);
+    const before = await top();
+    await t.p.keyboard.press(' '); await t.pause(400);
     await t.see('End → `run-tests`, ↑ → `reviews`; Space selects `reviews`; no scroll', async () => ({ ok: end === 'run-tests' && (await focused()) === 'reviews' && (await t.selected()) === 'reviews' && (await top()) === before, detail: `${end}, ${await focused()}, selected ${await t.selected()}, scroll ${before} → ${await top()}` }));
     await t.step(5); await t.p.keyboard.press('Tab'); await t.p.keyboard.press('Enter'); await t.pause(600);
     await t.see("`reviews`' fold unfolds; `reviews` stays selected", async () => ({ ok: (await t.item('reviews').locator('details.description').evaluate((d) => d.open)) && (await t.selected()) === 'reviews', detail: await t.selected() }));
@@ -549,7 +553,7 @@ export const CASES = {
     await t.see('`serve [--port <number>]` is listed', () => matches(r.stdout, /^  serve \[--port <number>\] +\S/m));
     t.note('the browser terminal half is covered by npm test only, as the script says');
   },
-  async 'WEB-30'(t) {
+  async 'WEB-34'(t) {
     t.needToken();
     const s = await t.serve(); await t.open(s.url);
     await t.step(1); await t.scan('https://github.com/JetBrains/koog');
