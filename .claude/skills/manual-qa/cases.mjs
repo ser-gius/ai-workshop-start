@@ -102,9 +102,9 @@ export const CASES = {
     const link = (name) => `  https://github.com/JetBrains/koog/blob/${KOOG}/.claude/skills/${name}/SKILL.md`;
     const expected = ['JetBrains/koog · 2 skills',
       'add-java-code-snippets-in-docs — Use when the user asks to add Java tabs/examples to mkdocs docs that already have Kotlin examples (files under docs/docs/**.md using === "Kotlin" / Knit INCLUDE+SUFFIX blocks).',
-      link('add-java-code-snippets-in-docs'),
+      link('add-java-code-snippets-in-docs'), '  updated 2026-05-18',
       'split-jvm-nonjvm — Splits a class or several classes in the common source set commonMain into JVM and non-JVM parts into jvmCommonMain and nonJvmCommonMain.',
-      link('split-jvm-nonjvm'), ''].join('\n');
+      link('split-jvm-nonjvm'), '  updated 2026-03-25', ''].join('\n');
     await t.see('Exactly the listing of the script', () => ({ ok: r.stdout === expected, detail: r.stdout.slice(0, 300) }));
     await t.see('`weather-retrieval` and `arithmetic-evaluator` not listed', !/weather-retrieval|arithmetic-evaluator/.test(r.stdout));
     await t.see('Nothing on stderr; exit code 0', r.stderr === '' && r.code === 0, `exit ${r.code}, stderr ${r.stderr.slice(0, 200)}`);
@@ -206,6 +206,30 @@ export const CASES = {
     await t.step(1); const r = await t.sh('time ./skill-atlas scan https://github.com/JetBrains/intellij-community');
     await t.see('The repository and its skills', r.code === 0 && /^JetBrains\/intellij-community · \d+ skills?$/.test(r.lines[0]), r.all.slice(0, 200));
     await t.see('In under 5 seconds', r.ms < 5000, `${(r.ms / 1000).toFixed(1)} s`);
+  },
+  async 'CLI-19'(t) {
+    t.needToken();
+    await t.step(1); const r = await t.sh(`./skill-atlas scan github.com/JetBrains/MPS/tree/${MPS} 2>/dev/null | grep -A3 '^actions '`);
+    await t.see('`actions`, its link, `also in .claude/skills/actions/SKILL.md`, then `updated 2026-05-21`', () => ({
+      ok: /^actions( — .*)?$/.test(r.lines[0]) && r.lines[1] === `  https://github.com/JetBrains/MPS/blob/${MPS}/.agents/skills/actions/SKILL.md`
+        && r.lines[2] === '  also in .claude/skills/actions/SKILL.md' && r.lines[3] === '  updated 2026-05-21', detail: r.lines.join(' | ') }));
+    const whole = await t.sh(`./skill-atlas scan github.com/JetBrains/MPS/tree/${MPS} 2>/dev/null`, { show: false });
+    const blocks = whole.stdout.trimEnd().split('\n').slice(1).reduce((all, l) => (l.startsWith(' ') ? all.at(-1)?.push(l) : all.push([l]), all), []);
+    await t.see('Every skill\'s block ends with `updated <day>`', blocks.length > 0 && blocks.every((b) => /^  updated \d{4}-\d{2}-\d{2}$/.test(b.at(-1))),
+      blocks.filter((b) => !/^  updated /.test(b.at(-1))).map((b) => b[0]).join(', ') || `${blocks.length} blocks`);
+    await t.step(2); const f = await t.sh('./skill-atlas scan fixture 2>/dev/null');
+    const fixture = f.stdout.trimEnd().split('\n').slice(1).reduce((all, l) => (l.startsWith(' ') ? all.at(-1)?.push(l) : all.push([l]), all), []);
+    const days = [];
+    for (const b of fixture) {
+      const folder = /\/fixture\/(.*)\/SKILL\.md$/.exec(b[1] ?? '')?.[1];
+      const day = (await t.sh(`TZ=UTC git log -1 --date=format-local:%Y-%m-%d --format=%cd -- fixture/${folder}`, { show: false })).stdout.trim();
+      days.push({ name: nameOf(b[0]), last: b.at(-1), expected: `  updated ${day}` });
+    }
+    await t.see('Each skill\'s last line is `updated <YYYY-MM-DD>`, the day of the latest commit to its folder (UTC)',
+      days.length === 7 && days.every((d) => d.last === d.expected), days.filter((d) => d.last !== d.expected).map((d) => `${d.name}: ${d.last.trim()} vs ${d.expected.trim()}`).join('; ') || `${days.length} skills`);
+    await t.step(3); const p = await t.sh('rm -rf /tmp/qa-plain && cp -r fixture /tmp/qa-plain && ./skill-atlas scan /tmp/qa-plain');
+    await t.see('Outside git: no `updated` line at all', () => ({ ok: p.code === 0 && p.lines.length > 1 && !/updated/.test(p.stdout), detail: p.stdout.slice(0, 300) }));
+    await t.see('And no warning about it', () => ({ ok: p.stderr.trim().split('\n').filter(Boolean).every((l) => /release-checklist.*malformed front matter/.test(l)), detail: p.stderr.slice(0, 300) }));
   },
 
   // ======================== qa/organization.md
@@ -501,6 +525,46 @@ export const CASES = {
     await t.step(1); const r = await t.sh('./skill-atlas help');
     await t.see('`serve [--port <number>]` is listed', () => matches(r.stdout, /^  serve \[--port <number>\] +\S/m));
     t.note('the browser terminal half is covered by npm test only, as the script says');
+  },
+  async 'WEB-30'(t) {
+    t.needToken();
+    const s = await t.serve(); await t.open(s.url);
+    await t.step(1); await t.scan('https://github.com/JetBrains/koog');
+    const rows = await t.p.$$eval('#skills li[role="option"]', (els) => els.map((li) => {
+      const head = li.querySelector('.head'), name = head?.querySelector('.name'), chip = head?.querySelector('.updated'), time = chip?.querySelector('time');
+      const desc = li.querySelector('.description');
+      const box = (e) => e?.getBoundingClientRect();
+      return { name: name?.textContent, day: chip?.textContent, title: time?.title, beside: chip && name ? Math.abs(box(chip).top - box(name).top) < 8 && box(chip).left > box(name).right : false,
+        under: desc ? box(desc).top >= box(head).bottom - 1 : true, chip: chip ? getComputedStyle(chip).borderRadius : '', bold: name ? getComputedStyle(name).fontWeight : '' };
+    }));
+    await t.see('Each skill\'s day, `YYYY-MM-DD`', rows.length > 0 && rows.every((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.day ?? '')), rows.map((r) => `${r.name}: ${r.day}`).join(', '));
+    await t.see('A small chip beside its name, its description under them', rows.length > 0 && rows.every((r) => r.beside && r.under && parseFloat(r.chip) > 0),
+      JSON.stringify(rows.filter((r) => !(r.beside && r.under && parseFloat(r.chip) > 0)).slice(0, 3)));
+    const first = t.item(rows[0]?.name ?? '');
+    await first.locator('.head .updated time').hover(); await t.pause(1200);
+    await t.see('On hover, `Last updated <day> <hh:mm:ss> UTC`', rows.every((r) => r.title === `Last updated ${r.day} ${/\d{2}:\d{2}:\d{2}/.exec(r.title ?? '')?.[0]} UTC`) && rows.every((r) => /^Last updated \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$/.test(r.title ?? '')),
+      rows.map((r) => `${r.day} / ${r.title}`).join(', '));
+    await t.see('On the right, under the link, `updated <day>`: the same day', async () => {
+      const shown = await t.text('#skill .updated');
+      const under = await t.p.$eval('#skill', (v) => { const a = v.querySelector(':scope > a'), u = v.querySelector(':scope > .updated'); return !!(a && u && u.getBoundingClientRect().top >= a.getBoundingClientRect().bottom - 1); }).catch(() => false);
+      return { ok: under && shown === `updated ${rows[0]?.day}` && (await t.selected()) === rows[0].name, detail: `${await t.selected()}: ${shown}, under the link: ${under}` };
+    });
+    await t.step(2); const other = rows[1]?.name ?? ''; await t.click(other);
+    const cli = await t.sh('./skill-atlas scan https://github.com/JetBrains/koog 2>/dev/null', { show: false });
+    const at = cli.lines.findIndex((l) => nameOf(l) === other);
+    const printed = cli.lines.slice(at + 1).find((l, i, rest) => l.startsWith('  updated ') && rest.slice(0, i).every((x) => x.startsWith(' ')))?.trim();
+    await t.see(`Its own \`updated <day>\`, as \`./skill-atlas scan\` prints it`, async () => {
+      const shown = await t.text('#skill .updated');
+      return { ok: (await t.selected()) === other && shown === printed && shown === `updated ${rows[1].day}`, detail: `${await t.selected()}: ${shown}; the CLI: ${printed}` };
+    });
+    await t.step(3, 'made here as CLI-19 step 3 does'); rmSync('/tmp/qa-plain', { recursive: true, force: true });
+    cpSync(join(import.meta.dirname, '../../../fixture'), '/tmp/qa-plain', { recursive: true });
+    await t.scan('/tmp/qa-plain');
+    await t.see('No day anywhere', async () => ({ ok: (await t.names()).length === 7 && (await t.p.$$('#skills .updated, #skill .updated, time')).length === 0, detail: `${(await t.names()).length} skills, ${(await t.p.$$('.updated')).length} days` }));
+    await t.see('No warning (but the fixture\'s malformed front matter)', async () => {
+      const w = await t.text('#warnings');
+      return { ok: w.split('\n').filter(Boolean).every((l) => /release-checklist.*malformed front matter/.test(l)), detail: w };
+    });
   },
   async 'WEB-14'(t) {
     t.needToken();
