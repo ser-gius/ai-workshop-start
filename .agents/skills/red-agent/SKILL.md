@@ -1,6 +1,6 @@
 ---
 name: red-agent
-description: Try to break the Skill Atlas web view (`./skill-atlas serve`), then open one GitHub issue per bug found, with the steps to reproduce it and a video of them, labelled "Delegated to AI". Use when asked to attack, break, fuzz or bug-hunt the web view, or to act as the red agent.
+description: Try to break the Skill Atlas web view (`./skill-atlas serve`), then open one GitHub issue per bug found, with the steps to reproduce it and a video of them, labelled "Delegated to AI", and posted in the Slack channel sergius-private-channel. Use when asked to attack, break, fuzz or bug-hunt the web view, or to act as the red agent.
 ---
 
 # Red agent: break the web view, report each bug
@@ -16,7 +16,8 @@ Do not fix anything here, and do not change `src/`, `spec/` or `tests/`.
 ## 1. Prepare
 1. Read [spec/web.md](../../../spec/web.md), the page in [src/web.ts](../../../src/web.ts) and
    [qa/web.md](../../../qa/web.md). The QA cases are what is already checked: look *between* them.
-2. `npm ci`, then `.claude/skills/record-demo/setup.sh` once per machine (ffmpeg, Chrome, Playwright).
+2. `npm ci`, then `.claude/skills/record-demo/setup.sh` once per machine (ffmpeg, Chrome, Playwright),
+   and `jq` for Slack (`sudo apt-get install -y jq` if `command -v jq` finds none).
 3. Start a server of your own: `./skill-atlas serve --port 4400 &`. Use `GITHUB_TOKEN=$(gh auth token)`
    for GitHub links; prefer the fixed commits in [qa/README.md](../../../qa/README.md) and the local
    [fixture/](../../../fixture/README.md), so a bug reproduces the same way later.
@@ -125,7 +126,8 @@ echo "https://github.com/$repo/raw/$sha/bugs/$slug/$slug.gif https://github.com/
 Then the issue, with the label (`gh label create "Delegated to AI"` if it is missing):
 
 ```bash
-gh issue create --label "Delegated to AI" --title "<what goes wrong, from the user's side>" --body-file - <<EOF
+title="<what goes wrong, from the user's side>"
+url=$(gh issue create --label "Delegated to AI" --title "$title" --body-file - <<EOF
 <one sentence: the bug and where it shows>
 
 **Steps**
@@ -143,14 +145,36 @@ gh issue create --label "Delegated to AI" --title "<what goes wrong, from the us
 
 Found on $(git rev-parse --short HEAD), $(uname -s), Chrome $(google-chrome --version | grep -o '[0-9.]*$').
 EOF
+)
 ```
 
 - The title says what the user sees (`A slow scan's answer replaces the newer one`), not the guessed cause.
 - A guess at the cause (a file and a line) may follow *Actual*, marked as a guess.
 - Open the issue afterwards and check that the GIF renders.
 
-## 6. Report
-To the user: a table of the issues opened (number, title, link), then the candidates dropped and why
+## 6. Post it on Slack
+Every new issue, right after it is filed, goes to the private channel `sergius-private-channel`, with
+`SLACK_BOT_TOKEN`: one message per issue, its title and link, so a human sees what was delegated.
+Only issues this run opened; not the dropped candidates, not duplicates.
+
+```sh
+# the channel's ID (a private channel is not addressable by name); once per run
+CHANNEL=$(curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+  "https://slack.com/api/conversations.list?types=private_channel&limit=1000" \
+  | jq -r '.channels[] | select(.name=="sergius-private-channel") | .id')
+# the message: the bug, its link, the label
+jq -n --arg c "$CHANNEL" --arg t ":beetle: New bug in the web view, delegated to AI: <$url|$title>" \
+  '{channel:$c, text:$t, unfurl_links:false}' \
+  | curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+      -H 'Content-Type: application/json; charset=utf-8' --data @- \
+      https://slack.com/api/chat.postMessage | jq '{ok, error}'
+```
+
+Check `.ok`; if it is `false`, report the `.error` (`not_in_channel`, `missing_scope`, …) to the user,
+and go on filing the other issues. Never print the token.
+
+## 7. Report
+To the user: a table of the issues opened (number, title, link, posted on Slack or the error), then the candidates dropped and why
 (did not reproduce, a duplicate of #n, not a bug), and what was tried without finding anything.
 Keep the videos under `$AIR_ARTIFACTS_DIR/red-agent/`. Then, as [AGENTS.md](../../../AGENTS.md) asks,
 add a note with [update-memory](../update-memory/SKILL.md) if the hunt taught something.
