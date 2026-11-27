@@ -30,11 +30,15 @@ async function scan(page: Page, link: string) {
   await page.locator('#scan').click();
 }
 
-/** `#status` sits on the field's row, beside it, not on a row of its own under it. */
+/** `#status` sits on the field's row, beside it, not on a row of its own under it, at any width above 860 px. */
 async function besideTheField(page: Page) {
-  const [form, status] = await Promise.all([page.locator('#form'), page.locator('#status')].map((l) => l.boundingBox()));
-  expect(status!.y, 'what was scanned: on the field\'s row').toBeLessThan(form!.y + form!.height);
-  expect(status!.x, 'what was scanned: beside the field').toBeGreaterThanOrEqual(form!.x + form!.width);
+  const size = page.viewportSize()!;
+  for (const width of [861, 900, 937, size.width]) {
+    await page.setViewportSize({ width, height: size.height });
+    const [form, status] = await Promise.all([page.locator('#form'), page.locator('#status')].map((l) => l.boundingBox()));
+    expect(status!.y, `what was scanned at ${width} px: on the field's row`).toBeLessThan(form!.y + form!.height);
+    expect(status!.x, `what was scanned at ${width} px: beside the field`).toBeGreaterThanOrEqual(form!.x + form!.width);
+  }
 }
 /** The page is no wider than the window: nothing makes it scroll sideways. */
 async function noSidewaysScroll(page: Page) {

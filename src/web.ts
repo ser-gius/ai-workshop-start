@@ -288,6 +288,8 @@ const PAGE = `<!doctype html>
   .header-row h1 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
   /* min-width: 0 lets the field shrink below its content on a narrow screen, Scan inside the card. */
   .header-row #form { flex: 1 1 360px; min-width: 0; }
+  /* Wider than 860 px, a smaller basis: the name, the field and 40% for what was scanned fit on one row from 861 px. */
+  @media (min-width: 861px) { .header-row #form { flex-basis: 280px; } }
   /* What was scanned, on one line beside the field: a long link is cut with …, the whole of it on hover; an error wraps.
      At most 40% of the row, so it shrinks beside the field instead of going onto a row of its own. */
   .header-row #status { flex: 0 1 auto; margin-top: 0; min-width: 0; max-width: 40%; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
