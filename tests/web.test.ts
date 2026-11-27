@@ -1,7 +1,7 @@
 // spec/web.md: the local web view, over ./fixture and the GitHub repository answered in tests/helpers.ts.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { request } from 'node:http';
 import { join } from 'node:path';
@@ -204,6 +204,14 @@ test('the highlight: every occurrence of every word, case-insensitive', () => {
   assert.equal(bracketed('checklist', 'checkl eckli'), '[checkli]st', 'overlapping matches: one highlight');
   assert.equal(bracketed('aaa', 'aa'), '[aaa]', 'overlapping occurrences of one word');
   assert.deepEqual(highlightRanges('anything', '   '), [], 'no words: nothing');
+  assert.equal(
+    bracketed('İİİİ Turkish capitals first, then the word target here.', 'capitals target'),
+    'İİİİ Turkish [capitals] first, then the word [target] here.',
+    "a longer lower case ('İ' → 'i̇') does not shift the matches after it",
+  );
+  assert.equal(bracketed('İstanbul İzmir', 'i'), '[İ]stanbul [İ]zm[i]r', 'a match in part of a letter: the whole letter; touching: one highlight');
+  assert.equal(bracketed('İSTANBUL', 'i̇stanbul'), '[İSTANBUL]', 'the lower case typed: the whole word');
+  assert.equal(bracketed('ΟΔΟΣ', 'οδος'), '[ΟΔΟΣ]', 'a final sigma, as matchesFilter sees it');
   assert.deepEqual(highlightRanges('anything', 'zzz'), []);
 });
 
@@ -221,6 +229,11 @@ test('the snippet: around the first match, from the start of a word, cut with �
   assert.equal(filterSnippet(long, 'generates'), 'Generates the typesystem aspect of a language: inference rules, checking rules and the Wh…', 'at the start: no … before');
   assert.equal(filterSnippet(long, 'project'), '…against every module of the project.', 'at the end: no … after');
   assert.equal(filterSnippet('x'.repeat(40) + 'match', 'match'), '…match', 'no word start within reach: the match itself');
+  assert.equal(
+    filterSnippet('Checks the spelling of words: ' + 'İ'.repeat(12) + ' Turkish capitals first.', 'capitals'),
+    '…words: İİİİİİİİİİİİ Turkish capitals first.',
+    "after 'İ': from the start of a word at most 30 characters before the match",
+  );
 });
 
 test('the count in the filter field: the matches while it has words, else every skill', () => {
@@ -320,6 +333,23 @@ test('the page highlights the matches in the name and the snippet, case-insensit
   assert.deepEqual(page.rows().find(([name]) => name.includes('view')), ['[review]s', '[Review] a change the way this [re]pository does. Use befo[re] merging.'], 'every word; touching: one highlight');
   page.type('');
   assert.deepEqual(page.rows().find(([name]) => name === 'lint-checks'), ['lint-checks', 'Write a lint check for this repository.'], 'no filter: the description again, nothing highlighted');
+});
+
+test('the page highlights a match after a dotted capital İ where it is', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'skill-atlas-turkish-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, '.claude/skills/istanbul'), { recursive: true });
+  writeFileSync(
+    join(root, '.claude/skills/istanbul/SKILL.md'),
+    '---\nname: istanbul\ndescription: İİİİ Turkish capitals first, then the word target here.\n---\nbody\n',
+  );
+  const page = await openPage(t, new URLSearchParams({ repo: root, filter: 'capitals' }).toString());
+  assert.equal(page.count(), '1 of 1');
+  assert.deepEqual(page.rows(), [['istanbul', 'İİİİ Turkish [capitals] first, then the word target here.']]);
+  page.type('target');
+  assert.deepEqual(page.rows(), [['istanbul', '…capitals first, then the word [target] here.']]);
+  page.type('i');
+  assert.deepEqual(page.rows(), [['[i]stanbul', '[İİİİ] Turk[i]sh cap[i]tals f[i]rst, then the word target here.']], 'a match in part of a letter: the whole letter; touching: one highlight');
 });
 
 test('a new scan keeps the filter', async (t) => {
