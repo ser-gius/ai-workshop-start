@@ -11,21 +11,9 @@ resolved since a date and time. Facts from GitHub only, nothing guessed or summa
 ## 1. The start
 - Take the date and time from the request ("since Monday 9:00", "since 2026-11-25 14:30 CET").
   A date without a time: 00:00 of that day.
-- No date at all: ask. If nobody can answer (a headless or scheduled run), start from the
-  previous status update instead: the newest message in the channel that begins
-  `:clipboard: *Status of`. Look it up with the channel ID from step 4:
-
-  ```sh
-  LAST_TS=$(curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-    "https://slack.com/api/conversations.history?channel=$CHANNEL&limit=200" \
-    | node -e 'const r = JSON.parse(require("fs").readFileSync(0));
-      if (!r.ok) { console.error(r.error); process.exit(1) }
-      console.log((r.messages.find(m => (m.text || "").startsWith(":clipboard: *Status of")) || {}).ts || "")')
-  SINCE=$(date -u -d "@${LAST_TS%.*}" +%FT%TZ)
-  ```
-
-  In the message, say "since the previous update (<that time>)". If there is no previous
-  update in the channel, do not make up a start: post nothing, and report what is missing.
+- No date at all, nor anything to take it from: the last month, from this moment one month
+  ago (`SINCE=$(date -u -d '1 month ago' +%FT%TZ)`). Do not ask; the message says
+  "since <that time> (the last month; no start was given)", so the default is on record.
 - No time zone given: the user's own (`$TZ`, else the machine's). Say which one in the message.
 - Convert it to UTC for GitHub's search; keep the original for the message:
 
