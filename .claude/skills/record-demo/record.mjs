@@ -73,6 +73,38 @@ const CASES = {
       await h.pause(3000);
     },
   },
+  history: {
+    about: 'Offline: two scans, then Back to the first one, Forward to the second, Back to the empty page',
+    async run(p, h) {
+      // A page before Skill Atlas in the tab, as a user has one.
+      await p.goto('data:text/html,<h1 style="font-family:sans-serif">The page before Skill Atlas</h1>');
+      await h.pause(1000);
+      await p.goto(h.url);
+      await h.pause(800);
+      const status = async (expected) => {
+        await p.waitForFunction((text) => document.getElementById('status').textContent === text, expected, { timeout: 30_000 });
+      };
+      await h.scan(join(ROOT, 'fixture'));
+      await status('fixture · 7 skills');
+      await h.pause(1500);
+      await h.scan(join(ROOT, 'fixture', 'agent'));
+      await status('agent · 1 skill');
+      await h.pause(1500);
+      await p.goBack();
+      await status('fixture · 7 skills');
+      await h.pause(2000);
+      await p.goForward();
+      await status('agent · 1 skill');
+      await h.pause(2000);
+      await p.goBack();
+      await status('fixture · 7 skills');
+      await h.pause(1000);
+      await p.goBack();
+      await status('');
+      if (new URL(p.url()).search !== '' || !(await p.isHidden('#results'))) throw new Error('Back before any scan: not the empty page');
+      await h.pause(1500);
+    },
+  },
 };
 
 const args = process.argv.slice(2);
