@@ -1,6 +1,10 @@
 # AGENTS.md
 ## Specs
 Read [./spec](spec/) first. Update it with the code.
+## Skills
+The project's skills are in [.agents/skills](.agents/skills/), each linked from `.claude/skills/<name>`
+(`ln -s ../../.agents/skills/<name> .claude/skills/<name>`): Claude Code only loads skills from
+`.claude/skills`. Link every new skill there too.
 ## Memory
 Notes from earlier tasks are in [./memory](memory/); search them when needed. At the end of a task,
 add what it learned with the [update-memory](.agents/skills/update-memory/SKILL.md) skill.
