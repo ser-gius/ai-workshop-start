@@ -870,6 +870,27 @@ test('a malformed request → 400, as without the handler for a too long one', a
   assert.match(answer, /^HTTP\/1\.1 400 Bad Request\r\n/);
 });
 
+test("a link too long, reloaded: 431 with the page, which shows its clear message", async (t) => {
+  const link = `${url}?repo=${encodeURIComponent(TOO_LONG)}`;
+  const response = await fetch(link);
+  assert.equal(response.status, 431);
+  assert.match(response.headers.get('content-type') ?? '', /^text\/html/);
+  const html = await response.text();
+  assert.equal(html, await (await fetch(url)).text(), 'the page itself');
+  const dom = new JSDOM(html, {
+    url: link,
+    runScripts: 'dangerously',
+    beforeParse(window) {
+      (window as unknown as { fetch: typeof fetch }).fetch = (path) => fetch(new URL(String(path), url));
+    },
+  });
+  t.after(() => dom.window.close());
+  const status = dom.window.document.getElementById('status')!;
+  for (let i = 0; i < 200 && /^Scanning /.test(status.textContent ?? ''); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(status.textContent, 'The link is too long');
+  assert.equal(status.className, 'error');
+});
+
 test('a link too long: the page shows its clear message, no skills', async (t) => {
   const page = await pageAt(t, TOO_LONG);
   await page.scanned();

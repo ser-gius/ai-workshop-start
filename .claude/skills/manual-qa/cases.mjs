@@ -456,9 +456,12 @@ export const CASES = {
     await t.p.click('#scan'); await t.scanned();
     await t.see('`The link is too long` in the header, not a JavaScript error', async () => same(await t.text('#status'), 'The link is too long'));
     await t.see('No skills', async () => ({ ok: (await t.names()).length === 0 && (await t.p.isHidden('#results')) }));
+    await t.step(2); await t.p.reload(); await t.scanned();
+    await t.see('The page again, `The link is too long` in the header', async () => same(await t.text('#status'), 'The link is too long'));
+    await t.see('No skills', async () => ({ ok: (await t.names()).length === 0 && (await t.p.isHidden('#results')) }));
     await t.scan(t.fixture);
     await t.see('The page still works: the fixture\'s skills', async () => same((await t.names()).length, 7));
-    await t.step(2); const a = await t.api(`${s.url}api/scan?repo=${'a'.repeat(20000)}`);
+    await t.step(3); const a = await t.api(`${s.url}api/scan?repo=${'a'.repeat(20000)}`);
     await t.see('`{"error":"The link is too long"} 431`', a.status === 431 && a.text === '{"error":"The link is too long"}', `${a.text} ${a.status}`);
   },
   async 'WEB-10'(t) {

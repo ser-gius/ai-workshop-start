@@ -123,7 +123,7 @@ export function createWebServer({ open, repositories }: WebOptions): Server {
     }
   });
   // A request over Node's 16 KB for its line and headers (a very long link) never reaches the handler:
-  // Node answers 431 with an empty body, so the page would read no message. It gets one in JSON here;
+  // Node answers 431 with an empty body, so the page would read no message. It gets one here;
   // every other rejected request is answered as Node does without this listener.
   server.on('clientError', (error: NodeJS.ErrnoException, socket) => {
     // As Node: no answer over one already being written on this socket (keep-alive).
@@ -131,9 +131,13 @@ export function createWebServer({ open, repositories }: WebOptions): Server {
     if (!socket.writable || inFlight?._headerSent) return socket.destroy();
     const status = REJECTED[error.code ?? ''] ?? '400 Bad Request';
     if (error.code !== 'HPE_HEADER_OVERFLOW') return socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
-    const body = JSON.stringify({ error: 'The link is too long' });
+    // The page's own link (reloaded or shared after a too long scan) gets the page, which scans it and
+    // shows the message; /api/ gets the JSON. Told apart by the request line, in the chunk Node rejected.
+    const line = (error as { rawPacket?: Buffer }).rawPacket?.toString('latin1', 0, 64) ?? '';
+    const page = /^[A-Z]+ \//.test(line) && !/^[A-Z]+ \/api\//.test(line);
+    const [type, body] = page ? ['text/html', PAGE] : ['application/json', JSON.stringify({ error: 'The link is too long' })];
     socket.end(
-      `HTTP/1.1 ${status}\r\nContent-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\n` +
+      `HTTP/1.1 ${status}\r\nContent-Type: ${type}; charset=utf-8\r\nCache-Control: no-store\r\n` +
         `Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
     );
   });
