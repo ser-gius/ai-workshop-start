@@ -22,6 +22,9 @@ Prints `Skill Atlas at <URL>`; a wrong argument → usage, exit code 1
   (a long sentence too); when there is more (a second sentence, or a sentence cut at two lines), it is
   **foldable**: `▸` shows it, a click unfolds the whole description (`▾`), another folds it.
   Folding does not change the selected skill
+  - A sentence is **measured again** when the window's width changes (a resize, a zoom) and when a filter
+    shows its row: narrower, a sentence cut at two lines gets its `▸`; wider, one that fits again loses it.
+    An unfolded one stays open; one still cut stays the same fold, so a focused `▸` keeps the keyboard focus
 - A selected skill (the first one at first): its name, link, `also in <paths>`, `updated <day>`, and its **SKILL.md** as it is
 - The **keyboard** reaches every skill, as a `listbox` does: the list is *one* Tab stop, on the selected skill;
   the arrows move the focus, not the Tab stop, so Tab back into the list returns to the selected skill
