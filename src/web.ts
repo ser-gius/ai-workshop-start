@@ -137,12 +137,25 @@ export function matchesFilter(skill: { name: string; description: string }, filt
 /**
  * Where the filter's words are in a text, to highlight: every occurrence of every word,
  * case-insensitive, as [start, end) ranges in order; overlapping or touching ones merged.
+ * The ranges are in the text itself, not in its lower case: a character whose lower case is longer
+ * ('İ' → 'i̇') does not shift the matches after it, and a match in part of one covers it whole.
  */
 export function highlightRanges(text: string, filter: string): [number, number][] {
   const lower = text.toLowerCase();
+  // For each code unit of the lower case: where the character it comes from starts and ends in the text.
+  const starts: number[] = [];
+  const ends: number[] = [];
+  let next = 0;
+  for (const char of text) {
+    for (let i = 0; i < char.toLowerCase().length; i++) {
+      starts.push(next);
+      ends.push(next + char.length);
+    }
+    next += char.length;
+  }
   const ranges: [number, number][] = [];
   for (const word of filterWords(filter)) {
-    for (let at = lower.indexOf(word); at !== -1; at = lower.indexOf(word, at + 1)) ranges.push([at, at + word.length]);
+    for (let at = lower.indexOf(word); at !== -1; at = lower.indexOf(word, at + 1)) ranges.push([starts[at], ends[at + word.length - 1]]);
   }
   ranges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const merged: [number, number][] = [];

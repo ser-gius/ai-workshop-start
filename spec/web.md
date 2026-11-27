@@ -56,6 +56,9 @@ A **filter field** above the skill list narrows it *as you type*, no new scan
   it has words, else `7 skills`
 - A match is **highlighted**, in the name and in the description: every occurrence of every word,
   case-insensitive (`test` highlights `teSt` and `Test`)
+  - A letter whose lower case is longer does not shift it: after `İİİİ` (Turkish capital dotted I, `i̇` in lower case),
+    `capitals` highlights `capitals`, not `tals fir`; the snippet starts where it should too.
+    A match in part of such a letter highlights the whole letter (`i` in `İstanbul` → `[İ]stanbul`)
 - While a word is in the description, the skill shows a **snippet** of it instead, on one line: from the start of
   a word at most 30 characters before the first match, to at most 80 after it, `…` where it is cut;
   a match in the name only → the description as without a filter
